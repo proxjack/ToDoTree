@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Trees — process maps</title>
+<style>
+:root{
+  --bg:#f6f5f1; --surface:#ffffff; --ink:#23262b; --muted:#7a7f87; --line:#d3d0c6;
+  --accent:#4f6df5; --grid:#e1ded4; --bar:rgba(255,255,255,.88);
+  --shadow:0 2px 6px rgba(30,30,40,.10),0 8px 20px rgba(30,30,40,.06);
+}
+[data-theme=dark]{
+  --bg:#17191d; --surface:#23262c; --ink:#eceef2; --muted:#8c929b; --line:#454a53;
+  --accent:#8ea1ff; --grid:#262a31; --bar:rgba(32,35,42,.9);
+  --shadow:0 2px 8px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+[hidden]{display:none!important}
+
+/* ---------- Stage ---------- */
+#stage{position:fixed;inset:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;
+  background-image:radial-gradient(circle,var(--grid) 1.3px,transparent 1.7px);background-size:28px 28px}
+#world{position:absolute;left:0;top:0;transform-origin:0 0}
+#links{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+#links path{fill:none;stroke-width:2.6;stroke-linecap:round;opacity:.75}
+
+/* ---------- Cloud nodes ---------- */
+.node{position:absolute;left:0;top:0;width:max-content;max-width:270px;display:flex;align-items:flex-start;gap:9px;
+  padding:10px 16px 11px 12px;border:2px solid var(--c);
+  border-radius:28px 34px 30px 36px/30px 26px 34px 28px;
+  background:color-mix(in srgb,var(--c) 13%,var(--surface));color:var(--ink);
+  box-shadow:var(--shadow);cursor:grab;font-weight:500;font-size:15px}
+.node.has-kids{padding-bottom:17px}
+.node.root{background:var(--c);color:#fff;font-weight:700;font-size:17px;padding:13px 20px 15px 16px}
+.node.root.has-kids{padding-bottom:20px}
+.node.sel{box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 35%,transparent),var(--shadow)}
+.node.drag{cursor:grabbing;z-index:5;opacity:.92}
+.node.drop{outline:3px dashed var(--accent);outline-offset:4px}
+.node.hit{box-shadow:0 0 0 4px #f6c94a,var(--shadow)}
+.node.dim{opacity:.3}
+.node.done .txt{text-decoration:line-through;opacity:.6}
+.node.editing{cursor:text;user-select:text;-webkit-user-select:text}
+.node.enter{animation:pop .22s ease-out}
+@keyframes pop{from{opacity:0;scale:.6}to{opacity:1;scale:1}}
+.body{min-width:0}
+.txt{white-space:pre-wrap;overflow-wrap:anywhere;outline:none;min-width:24px}
+.num{font-size:11px;font-weight:700;opacity:.55;letter-spacing:.02em}
+.num:empty{display:none}
+.meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.chip{font-size:11px;font-weight:600;line-height:1;padding:3px 7px;border-radius:9px;
+  background:color-mix(in srgb,currentColor 13%,transparent)}
+.chip.p1{background:color-mix(in srgb,#2fa36b 26%,transparent);color:#2fa36b}
+.chip.p2{background:color-mix(in srgb,#e0a21b 26%,transparent);color:#c18607}
+.chip.p3{background:color-mix(in srgb,#e5604d 26%,transparent);color:#e5604d}
+.chip.late{background:#e5604d;color:#fff}
+.chip.tag{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.root .chip.tag{color:#fff;background:rgba(255,255,255,.22)}
+.chk{flex:none;width:20px;height:20px;margin-top:1px;border-radius:50%;border:2px solid var(--c);
+  background:transparent;padding:0;cursor:pointer;position:relative}
+.root .chk{border-color:#fff}
+.done>.chk{background:var(--c)}
+.root.done>.chk{background:#fff}
+.done>.chk::after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid #fff;
+  border-width:0 2px 2px 0;transform:rotate(45deg)}
+.root.done>.chk::after{border-color:var(--c)}
+.partial>.chk::after{content:"";position:absolute;left:3px;top:7px;width:10px;height:2px;background:var(--c);border-radius:1px}
+.root.partial>.chk::after{background:#fff}
+.fold{position:absolute;left:50%;bottom:-12px;transform:translateX(-50%);min-width:24px;height:24px;padding:0 6px;
+  border-radius:12px;border:2px solid var(--c);background:var(--surface);color:var(--c);
+  font:700 12px/1 system-ui,sans-serif;cursor:pointer}
+.prog{display:none;position:absolute;left:18px;right:18px;bottom:6px;height:3px;border-radius:2px;
+  background:color-mix(in srgb,var(--c) 22%,transparent);overflow:hidden}
+.has-kids .prog{display:block}
+.prog i{display:block;height:100%;background:var(--c)}
+.root .prog{background:rgba(255,255,255,.3)}
+.root .prog i{background:#fff}
+
+/* ---------- Top bar ---------- */
+#bar{position:fixed;top:10px;left:10px;right:10px;display:flex;flex-wrap:wrap;gap:8px;z-index:20;pointer-events:none}
+.grp{pointer-events:auto;display:flex;align-items:center;gap:4px;background:var(--bar);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);
+  border-radius:14px;padding:4px 6px;box-shadow:var(--shadow)}
+.btn{font:inherit;font-size:13px;padding:5px 10px;border-radius:9px;border:1px solid transparent;
+  background:transparent;color:var(--ink);cursor:pointer;white-space:nowrap}
+.btn:hover{background:color-mix(in srgb,var(--ink) 9%,transparent)}
+.btn[disabled]{opacity:.35;cursor:default;background:transparent}
+.btn.danger{color:#e5604d}
+select,input[type=search],input[type=text],input[type=date],textarea{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);
+  border:1px solid var(--line);border-radius:9px;padding:4px 8px}
+select{max-width:200px}
+input[type=search]{width:140px}
+.chkl{display:flex;align-items:center;gap:4px;font-size:13px;padding:0 6px;cursor:pointer;white-space:nowrap}
+#saved{font-size:12px;color:var(--muted);padding:0 6px;min-width:112px}
+#saved.err{color:#e5604d;font-weight:600}
+
+/* ---------- Selected node toolbar ---------- */
+#tb{position:fixed;z-index:30;display:flex;flex-direction:column;gap:6px;background:var(--bar);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);
+  border-radius:14px;padding:5px 6px;box-shadow:var(--shadow);max-width:calc(100vw - 16px)}
+#tb .row{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+#tb .sep{width:1px;height:18px;background:var(--line)}
+#sw{display:flex;gap:5px;padding:0 3px}
+.sw{width:18px;height:18px;border-radius:50%;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line);padding:0;cursor:pointer}
+.sw.on{box-shadow:0 0 0 2px var(--ink)}
+.sw.auto{background:linear-gradient(135deg,var(--surface) 44%,var(--muted) 44%,var(--muted) 56%,var(--surface) 56%)}
+#note{width:100%;min-width:260px;resize:vertical}
+
+/* ---------- Node card (double click) ---------- */
+#card{position:fixed;z-index:35;top:10px;right:10px;bottom:10px;width:min(390px,calc(100vw - 20px));display:flex;flex-direction:column;
+  background:var(--bar);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--line);
+  border-radius:18px;box-shadow:var(--shadow);overflow:hidden;user-select:text;-webkit-user-select:text}
+#card header{display:flex;gap:8px;align-items:center;padding:12px 12px 10px 14px}
+#c-title{flex:1;min-width:0;font-size:16px;font-weight:700;padding:7px 10px}
+.cbody{overflow:auto;flex:1;overscroll-behavior:contain}
+.csec{padding:10px 14px 12px;border-top:1px solid var(--line)}
+.csec h4{margin:0 0 7px;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;
+  display:flex;justify-content:space-between}
+.csec input[type=text],.csec input[type=date],.csec select,.csec textarea{width:100%}
+.csec textarea{resize:vertical;min-height:70px}
+.seg{display:flex;gap:4px}
+.seg button{flex:1;padding:6px 4px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
+.seg button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.seg button[data-p="1"].on{background:#2fa36b;border-color:#2fa36b}
+.seg button[data-p="2"].on{background:#e0a21b;border-color:#e0a21b}
+.seg button[data-p="3"].on{background:#e5604d;border-color:#e5604d}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.two label,.csec>label{display:block;font-size:12px;color:var(--muted)}
+.two input,.csec>label select{margin-top:3px;color:var(--ink)}
+.quick{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}
+.quick .btn,.cfoot .btn{border-color:var(--line);padding:4px 9px;font-size:12px}
+#c-sw{display:flex;gap:7px;flex-wrap:wrap}
+.irow{display:flex;align-items:center;gap:6px;margin:0 0 4px}
+.irow input[type=checkbox]{width:17px;height:17px;flex:none;accent-color:var(--accent)}
+.irow.done input[type=text]{text-decoration:line-through;opacity:.6}
+.irow .x{flex:none;width:26px;height:26px;padding:0;border-radius:8px;border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:16px;line-height:1}
+.irow .x:hover{background:color-mix(in srgb,#e5604d 18%,transparent);color:#e5604d}
+#c-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+#c-tags:empty{display:none}
+.tagc{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:600;padding:3px 4px 3px 9px;border-radius:11px;
+  background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+.tagc button{border:0;background:none;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0 3px}
+.cfoot{display:flex;justify-content:space-between;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.chint{font-size:11px;color:var(--muted);margin-top:4px}
+@media (max-width:700px){#card{top:auto!important;left:10px;right:10px;width:auto;height:64vh}}
+
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:40;display:flex;gap:12px;align-items:center;
+  background:#2a2d33;color:#fff;border-radius:14px;padding:9px 14px;box-shadow:var(--shadow);font-size:13px;max-width:92vw}
+#toast button{font:inherit;font-weight:700;color:#9db0ff;background:none;border:0;cursor:pointer;padding:0}
+#hint{position:fixed;left:14px;bottom:10px;z-index:10;font-size:12px;color:var(--muted);pointer-events:none;max-width:70vw}
+@media (max-width:760px){#hint{display:none}}
+</style>
+</head>
+<body>
+
+<div id="stage"><div id="world"><svg id="links" width="1" height="1"></svg></div></div>
+
+<div id="bar">
+  <div class="grp">
+    <select id="treeSel" aria-label="Tree"></select>
+    <button class="btn" id="newTree" title="Create a new tree">+ New</button>
+    <button class="btn" id="delTree" title="Delete the current tree">Delete</button>
+  </div>
+  <div class="grp">
+    <input id="search" type="search" placeholder="Search…" autocomplete="off" aria-label="Search">
+    <label class="chkl"><input type="checkbox" id="onlyOpen"> Open only</label>
+    <label class="chkl"><input type="checkbox" id="numbers"> Numbers</label>
+  </div>
+  <div class="grp">
+    <button class="btn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+    <button class="btn" id="redo" title="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
+    <button class="btn" id="reorder" title="Reset manual moves and realign the tree">Tidy up</button>
+    <button class="btn" id="fit" title="Fit the tree to the window">Fit</button>
+  </div>
+  <div class="grp">
+    <button class="btn" id="expJson" title="Download a backup of all trees">JSON backup</button>
+    <button class="btn" id="expMd" title="Export the current tree as a Markdown list">Markdown</button>
+    <button class="btn" id="imp" title="Import a JSON backup or a Markdown list">Import</button>
+    <button class="btn" id="theme" title="Light / dark theme" aria-label="Change theme">Theme</button>
+    <span id="saved" aria-live="polite">—</span>
+  </div>
+</div>
+
+<div id="tb" hidden>
+  <div class="row">
+    <button class="btn" data-a="child">+ Child</button>
+    <button class="btn" data-a="sib">+ Sibling</button>
+    <i class="sep"></i>
+    <span id="sw"></span>
+    <i class="sep"></i>
+    <button class="btn" data-a="prio">Priority: —</button>
+    <input type="date" id="due" aria-label="Due date">
+    <button class="btn" data-a="note">Note</button>
+    <button class="btn" data-a="card" title="Open the card with all details (double click)">Details</button>
+    <i class="sep"></i>
+    <button class="btn danger" data-a="del">Delete</button>
+  </div>
+  <textarea id="note" rows="3" placeholder="Description, owner, tools…" hidden></textarea>
+</div>
+
+<aside id="card" hidden role="dialog" aria-label="Node card">
+  <header>
+    <input type="text" id="c-title" maxlength="400" autocomplete="off" aria-label="Title">
+    <button class="btn" id="c-close" title="Close (Esc)" aria-label="Close">✕</button>
+  </header>
+  <div class="cbody">
+    <section class="csec" style="border-top:0;padding-top:2px">
+      <label class="chkl"><input type="checkbox" id="c-done"> <span id="c-doneL">Done</span></label>
+    </section>
+    <section class="csec"><h4>Priority</h4>
+      <div class="seg" id="c-prio">
+        <button data-p="0">None</button><button data-p="1">Low</button><button data-p="2">Medium</button><button data-p="3">High</button>
+      </div>
+    </section>
+    <section class="csec"><h4>Dates</h4>
+      <div class="two">
+        <label>Start<input type="date" id="c-start"></label>
+        <label>Due<input type="date" id="c-due"></label>
+      </div>
+      <div class="quick">
+        <button class="btn" data-q="0">Today</button><button class="btn" data-q="1">Tomorrow</button>
+        <button class="btn" data-q="7">In 1 week</button><button class="btn" data-q="x">Clear dates</button>
+      </div>
+      <label>Repeat
+        <select id="c-rep"><option value="">Never</option><option value="d">Every day</option><option value="w">Every week</option><option value="m">Every month</option></select>
+      </label>
+      <div class="chint" id="c-rephint">When you mark the node as done, the due date moves to the next cycle.</div>
+    </section>
+    <section class="csec"><h4>Color</h4><div id="c-sw"></div></section>
+    <section class="csec"><h4>Checklist <span id="c-itemsN"></span></h4>
+      <div id="c-items"></div>
+      <input type="text" id="c-add" placeholder="Add an item (Enter)… or paste a list" maxlength="300" autocomplete="off">
+    </section>
+    <section class="csec"><h4>Tag</h4>
+      <div id="c-tags"></div>
+      <input type="text" id="c-tagin" placeholder="Add a tag (Enter)…" maxlength="24" autocomplete="off">
+    </section>
+    <section class="csec"><h4>Notes</h4>
+      <textarea id="c-note" rows="4" maxlength="2000" placeholder="Description, owner, tools…"></textarea>
+    </section>
+  </div>
+  <div class="cfoot">
+    <button class="btn danger" id="c-del">Delete node</button>
+    <button class="btn" id="c-ok">Close</button>
+  </div>
+</aside>
+
+<div id="toast" hidden></div>
+<div id="hint">Double click: card (dates, checklist, tags, notes…) · Tab: child · Enter: sibling · Space: done · Drag a node onto another to move it · Wheel: zoom</div>
+<input type="file" id="file" accept=".json,.md,.txt,.markdown" hidden>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+   CONSTANTS AND STATE
+   Data model: data = { v, trees:[{id, root, view}], current, theme, numbers }
+   Node: { id, text, done, collapsed, children[], color?, dx?, dy?, prio?, due?, start?, rep?, items?, tags?, note? }
+   Everything lives in the browser (localStorage): no server, no network.
+   ===================================================================== */
+const KEY = 'trees:v1', LEGACY_KEY = 'alberi:v1';   // LEGACY_KEY: where earlier versions saved their data
+const PALETTE = ['#4f6df5', '#e5604d', '#2fa36b', '#e0a21b', '#9b59d0', '#17a2b8', '#e0589a', '#7a8b99'];
+const ROOT_COLOR = '#6b7385';
+const GAP_X = 26, GAP_Y = 64, ANIM = 240, BUBBLE = 14, CEIL = 0, FROZEN = 100, GRID = 28;   // CEIL = ceiling: minimum y; GRID = snap grid step (same as the background)
+const toGrid = v => Math.round(v / GRID) * GRID;
+const PRIO = ['', 'Low', 'Medium', 'High'];
+const NS = 'http://www.w3.org/2000/svg';
+const $ = s => document.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+
+const stage = $('#stage'), world = $('#world'), links = $('#links'), tb = $('#tb');
+let data, view = { x: 0, y: 0, k: 1 };
+let selected = null, editing = null, preSnap = null, dragging = false, noteOpen = false;
+let query = '', onlyOpen = false, storageOK = true;
+let drag = null, pan = null, pinch = null, lastTap = { id: null, t: 0 };
+let raf = 0, bub = 0, saveT = 0, toastT = 0, order = [];
+const pointers = new Map();
+const els = new Map(), paths = new Map(), cur = {}, tgt = {}, baseT = {};
+const byId = new Map(), parentOf = new Map(), stats = new Map(), colorOf = new Map(), numOf = new Map(), vparent = new Map();
+const hist = [], redoStack = [];
+
+const tree = () => data.trees.find(t => t.id === data.current);
+const searching = () => query.trim().length > 0;
+const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const fmtDate = s => new Date(s + 'T00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+/* =====================================================================
+   DATA: creation, cleaning, persistence
+   ===================================================================== */
+const mk = (text, children = [], extra = {}) =>
+  Object.assign({ id: uid(), text, done: false, collapsed: false, children }, extra);
+
+function sample() {
+  const due = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  return mk('Process: product development', [
+    mk('Requirements', [mk('Gather needs', [], { done: true }), mk('Define specifications', [], { done: true })]),
+    mk('Design', [mk('Schema and architecture', [], { done: true }), mk('Layout and detail', [], { prio: 2 })]),
+    mk('Prototype', [mk('Order components', [], { prio: 3, due }), mk('Assembly')]),
+    mk('Testing and validation', [mk('Test plan'), mk('Execution and report', [], { note: 'Record the results and any non-conformities.' })]),
+    mk('Release', [mk('Documentation'), mk('Delivery')])
+  ]);
+}
+
+const cleanTag = t => String(t == null ? '' : t).replace(/^#+/, '').replace(/\s+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
+
+// ISO dates 'YYYY-MM-DD' computed in UTC (no daylight-saving issues)
+const isoParts = s => s.split('-').map(Number);
+const addDays = (s, n) => { const [y, m, d] = isoParts(s); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+const daysBetween = (a, b) => { const [y1, m1, d1] = isoParts(a), [y2, m2, d2] = isoParts(b); return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 864e5); };
+function stepDate(s, rep) {
+  if (rep === 'd') return addDays(s, 1);
+  if (rep === 'w') return addDays(s, 7);
+  let [y, m, d] = isoParts(s); m++; if (m > 12) { m = 1; y++; }
+  d = Math.min(d, new Date(Date.UTC(y, m, 0)).getUTCDate());          // Jan 31 + 1 month = Feb 28/29
+  return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+// Repeating node marked as done: the due date moves to the next cycle and the checklist restarts
+function advanceRepeat(x) {
+  const today = todayISO(), base = x.due || today;
+  let nd = stepDate(base, x.rep), guard = 0;
+  while (nd < today && guard++ < 1000) nd = stepDate(nd, x.rep);
+  if (x.start) x.start = addDays(x.start, daysBetween(base, nd));
+  x.due = nd; x.done = false;
+  if (x.items) x.items.forEach(i => { i.d = false; });
+}
+
+// Makes any node safe and consistent (including from imported files)
+function clean(x, seen) {
+  x = x && typeof x === 'object' ? x : {};
+  const id = typeof x.id === 'string' && x.id && !seen.has(x.id) ? x.id : uid();
+  seen.add(id);
+  const n = { id, text: String(x.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 400) || 'Untitled',
+    done: !!x.done, collapsed: !!x.collapsed, children: [] };
+  if (/^#[0-9a-f]{6}$/i.test(x.color)) n.color = x.color;
+  if (Number.isFinite(x.dx)) n.dx = x.dx;
+  if (Number.isFinite(x.dy)) n.dy = x.dy;
+  if ([1, 2, 3].includes(x.prio)) n.prio = x.prio;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(x.due)) n.due = x.due;
+  if (typeof x.note === 'string' && x.note.trim()) n.note = x.note.slice(0, 2000);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(x.start)) n.start = x.start;
+  if (['d', 'w', 'm'].includes(x.rep)) n.rep = x.rep;
+  if (Array.isArray(x.items)) {
+    const it = x.items.slice(0, 100).map(i => ({ t: String(i && i.t != null ? i.t : '').replace(/\s+/g, ' ').trim().slice(0, 300), d: !!(i && i.d) })).filter(i => i.t);
+    if (it.length) n.items = it;
+  }
+  if (Array.isArray(x.tags)) {
+    const seen2 = new Set(), tg = [];
+    for (const t of x.tags) {
+      const v = cleanTag(t); if (v && !seen2.has(v.toLowerCase()) && tg.length < 12) { seen2.add(v.toLowerCase()); tg.push(v); }
+    }
+    if (tg.length) n.tags = tg;
+  }
+  if (Array.isArray(x.children)) n.children = x.children.map(k => clean(k, seen));
+  return n;
+}
+
+function normalize(d) {
+  const out = { v: 1, trees: [], current: null, theme: null, numbers: true };
+  if (d && Array.isArray(d.trees)) {
+    for (const t of d.trees) {
+      if (!t || !t.root) continue;
+      const v = t.view;
+      const ok = v && [v.x, v.y, v.k].every(Number.isFinite) && v.k > 0.05 && v.k < 10;
+      out.trees.push({ id: String(t.id || uid()), root: clean(t.root, new Set()), view: ok ? { x: v.x, y: v.y, k: v.k } : null });
+    }
+  }
+  if (!out.trees.length) out.trees.push({ id: uid(), root: sample(), view: null });
+  out.current = out.trees.some(t => t.id === (d && d.current)) ? d.current : out.trees[0].id;
+  out.theme = d && (d.theme === 'dark' || d.theme === 'light') ? d.theme
+    : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  if (d && typeof d.numbers === 'boolean') out.numbers = d.numbers;
+  return out;
+}
+
+function load() {
+  let d = null;
+  try { const s = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY); if (s) d = JSON.parse(s); } catch (e) { storageOK = false; }
+  return normalize(d);
+}
+
+function setSaved(text, err) { const s = $('#saved'); s.textContent = text; s.classList.toggle('err', !!err); }
+function scheduleSave() { setSaved('Saving…'); clearTimeout(saveT); saveT = setTimeout(save, 350); }
+function save() {
+  clearTimeout(saveT); saveT = 0;
+  try { localStorage.setItem(KEY, JSON.stringify(data)); storageOK = true; setSaved('Saved locally'); }
+  catch (e) { storageOK = false; setSaved('⚠ Not saved: use JSON backup', true); }
+}
+
+/* =====================================================================
+   HISTORY (undo / redo)
+   ===================================================================== */
+const snap = () => JSON.stringify({ c: data.current, t: data.trees.map(t => ({ id: t.id, root: t.root })) });
+function pushHist(s) { hist.push(s); if (hist.length > 100) hist.shift(); redoStack.length = 0; }
+const commit = () => pushHist(snap());
+
+function restore(str) {
+  const s = JSON.parse(str), prev = data.current;
+  const views = new Map(data.trees.map(t => [t.id, t.view]));
+  data.trees = s.t.map(t => ({ id: t.id, root: t.root, view: views.get(t.id) || null }));
+  data.current = data.trees.some(t => t.id === s.c) ? s.c : data.trees[0].id;
+  if (data.current !== prev) openTree();
+  else { const t = tree(); if (!t.view) t.view = { x: 0, y: 0, k: 1 }; view = t.view; render(); }
+  scheduleSave();
+}
+function undo() { finishEdit(false); if (!hist.length) return; redoStack.push(snap()); restore(hist.pop()); }
+function redo() { finishEdit(false); if (!redoStack.length) return; hist.push(snap()); restore(redoStack.pop()); }
+function mutate(fn) { commit(); fn(); render(); scheduleSave(); }
+
+/* =====================================================================
+   INDEX AND VISIBILITY
+   ===================================================================== */
+function index() {
+  byId.clear(); parentOf.clear(); stats.clear(); colorOf.clear(); numOf.clear();
+  const root = tree().root;
+  (function walk(n, p, idx, inh, num) {
+    byId.set(n.id, n); parentOf.set(n.id, p ? p.id : null);
+    const c = n.color || (!p ? ROOT_COLOR : (p === root ? PALETTE[idx % PALETTE.length] : inh));
+    colorOf.set(n.id, c); numOf.set(n.id, num);
+    let d = 0, t = 0;
+    if (!n.children.length) { t = 1; d = n.done ? 1 : 0; }
+    else n.children.forEach((k, i) => {
+      const s = walk(k, n, i, c, num ? num + '.' + (i + 1) : String(i + 1));
+      d += s.d; t += s.t;
+    });
+    const s = { d, t }; stats.set(n.id, s); return s;
+  })(root, null, 0, ROOT_COLOR, '');
+}
+
+function vkids(n) {
+  if (n.collapsed && !searching()) return [];
+  return onlyOpen ? n.children.filter(k => { const s = stats.get(k.id); return s.d < s.t; }) : n.children;
+}
+
+/* =====================================================================
+   RENDER: DOM elements, tree layout, animation
+   ===================================================================== */
+const svgEl = t => document.createElementNS(NS, t);
+// Search looks at the title, tags and checklist items
+const matches = (n, q) => n.text.toLowerCase().includes(q) || (n.tags || []).some(t => t.toLowerCase().includes(q)) ||
+  (n.items || []).some(i => i.t.toLowerCase().includes(q));
+
+function buildNode(id) {
+  const el = document.createElement('div');
+  el.className = 'node'; el.dataset.id = id;
+  el.innerHTML = '<button class="chk" tabindex="-1" aria-label="Mark as done"></button>' +
+    '<div class="body"><div class="num"></div><div class="txt"></div><div class="meta"></div></div>' +
+    '<button class="fold" tabindex="-1" aria-label="Collapse or expand"></button>' +
+    '<div class="prog"><i></i></div>';
+  const t = el.querySelector('.txt');
+  t.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); finishEdit(true); t.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); t.blur(); }
+    e.stopPropagation();
+  });
+  t.addEventListener('input', liveLayout);
+  t.addEventListener('blur', () => { if (editing === id) finishEdit(true); });
+  t.addEventListener('paste', e => {
+    e.preventDefault();
+    const s = (e.clipboardData || window.clipboardData).getData('text/plain').replace(/\s+/g, ' ');
+    document.execCommand('insertText', false, s);
+  });
+  return el;
+}
+
+function chip(parent, text, cls) {
+  const c = document.createElement('span'); c.className = 'chip' + (cls ? ' ' + cls : ''); c.textContent = text; parent.append(c);
+}
+
+function updateNode(el, n) {
+  const root = tree().root, s = stats.get(n.id), has = n.children.length > 0, all = s.d === s.t;
+  el.style.setProperty('--c', colorOf.get(n.id));
+  el.classList.toggle('root', n.id === root.id);
+  el.classList.toggle('has-kids', has);
+  el.classList.toggle('done', all);
+  el.classList.toggle('partial', s.d > 0 && !all);
+  el.classList.toggle('sel', selected === n.id);
+  if (editing !== n.id) el.querySelector('.txt').textContent = n.text;
+  el.querySelector('.num').textContent = data.numbers && n.id !== root.id ? numOf.get(n.id) : '';
+  el.title = n.note || '';
+  const meta = el.querySelector('.meta'); meta.textContent = '';
+  if (n.prio) chip(meta, PRIO[n.prio], 'p' + n.prio);
+  if (n.start || n.due) {
+    const late = !!n.due && !all && n.due < todayISO();
+    const txt = n.start && n.due ? fmtDate(n.start) + ' → ' + fmtDate(n.due) : n.due ? fmtDate(n.due) : 'from ' + fmtDate(n.start);
+    chip(meta, (n.rep ? '↻ ' : '') + txt, late ? 'late' : '');
+  } else if (n.rep) chip(meta, '↻');
+  if (n.items) chip(meta, '☑ ' + n.items.filter(i => i.d).length + '/' + n.items.length);
+  if (has) chip(meta, s.d + '/' + s.t);
+  if (n.tags) n.tags.forEach(t => chip(meta, '#' + t, 'tag'));
+  if (n.note) chip(meta, '≡ note');
+  meta.hidden = !meta.childNodes.length;
+  const fold = el.querySelector('.fold');
+  fold.hidden = !has; fold.textContent = n.collapsed ? '+' + n.children.length : '−';
+  el.querySelector('.prog i').style.width = has ? Math.round(100 * s.d / s.t) + '%' : '0';
+  const q = query.trim().toLowerCase(), m = q && matches(n, q);
+  el.classList.toggle('hit', !!m);
+  el.classList.toggle('dim', !!q && !m);
+}
+
+function render(opts = {}) {
+  index();
+  const root = tree().root;
+  order = []; vparent.clear();
+  (function w(n, p) { order.push(n); vparent.set(n.id, p ? p.id : null); vkids(n).forEach(k => w(k, n)); })(root, null);
+  const vis = new Set(order.map(n => n.id));
+  for (const [id, el] of els) {
+    if (vis.has(id)) continue;
+    el.remove(); els.delete(id); delete cur[id];
+    const pa = paths.get(id); if (pa) { pa.remove(); paths.delete(id); }
+  }
+  for (const n of order) {
+    let el = els.get(n.id);
+    if (!el) { el = buildNode(n.id); world.append(el); els.set(n.id, el); }
+    updateNode(el, n);
+    if (n.id !== root.id && !paths.has(n.id)) { const pa = svgEl('path'); links.append(pa); paths.set(n.id, pa); }
+  }
+  if (selected && !vis.has(selected)) selected = null;
+  layout();
+  animateToTargets(opts.instant);
+  updateToolbar();
+  updateChrome();
+}
+
+// Tree layout: the root is at the top, children are laid out below, centered under their parent.
+// Manual offsets (dx, dy) add up along the branch, so the subtree follows the node.
+function layout() {
+  const root = tree().root, size = new Map();
+  for (const n of order) { const el = els.get(n.id); size.set(n.id, { w: el.offsetWidth, h: el.offsetHeight }); }
+  const sw = new Map();
+  (function f(n) {
+    const ks = vkids(n); let w = size.get(n.id).w;
+    if (ks.length) { let sum = GAP_X * (ks.length - 1); ks.forEach(k => { sum += f(k); }); w = Math.max(w, sum); }
+    sw.set(n.id, w); return w;
+  })(root);
+  const maxH = [];
+  (function g(n, d) { maxH[d] = Math.max(maxH[d] || 0, size.get(n.id).h); vkids(n).forEach(k => g(k, d + 1)); })(root, 0);
+  const ys = [0];
+  for (let d = 1; d < maxH.length; d++) ys[d] = ys[d - 1] + maxH[d - 1] + GAP_Y;
+  (function p(n, left, d, ox, oy) {
+    ox += n.dx || 0; oy += n.dy || 0;
+    const s = size.get(n.id), W = sw.get(n.id);
+    tgt[n.id] = { x: left + W / 2 - s.w / 2 + ox, y: ys[d] + oy, w: s.w, h: s.h };
+    const ks = vkids(n); if (!ks.length) return;
+    let total = GAP_X * (ks.length - 1); ks.forEach(k => { total += sw.get(k.id); });
+    let x = left + (W - total) / 2;
+    ks.forEach(k => { p(k, x, d + 1, ox, oy); x += sw.get(k.id) + GAP_X; });
+  })(root, 0, 0, 0, 0);
+  for (const n of order) baseT[n.id] = { ...tgt[n.id] };   // position without repulsion (needed for dx/dy)
+  // priority: fixed root > manually placed nodes (dx/dy) > automatic nodes (which yield)
+  const rank = {};
+  for (const n of order) rank[n.id] = n.id === root.id ? 2 : (n.dx || n.dy) ? 1 : 0;
+  relax(tgt, order.map(n => n.id), rank);
+}
+
+// "Bubble" repulsion: overlapping nodes (with a BUBBLE margin) push each other apart along the axis of
+// least penetration. Between two nodes the one with the lower `rank` yields (equal ranks each yield half).
+// Nothing can cross the ceiling (y < CEIL).
+// `rank` >= FROZEN = locked (dragged / drop target): two locked nodes never push each other.
+// To avoid comparing every pair, nodes are sorted by x and only nearby nodes are compared.
+// If a node is squeezed between two "heavier" nodes the push can oscillate without settling: in that (rare)
+// case a second phase ignores the priorities, except for locked nodes, until nothing overlaps any more.
+function relax(r, ids, rank) {
+  const list = ids.filter(id => r[id]);
+  if (relaxPass(r, list, id => (rank && rank[id]) || 0, 60)) return;
+  relaxPass(r, list, id => ((rank && rank[id]) || 0) >= FROZEN ? FROZEN : 0, 300);
+}
+// Returns true if it reached a state with no overlaps within `maxPass` passes
+function relaxPass(r, list, rk, maxPass) {
+  for (let pass = 0; pass < maxPass; pass++) {
+    let moved = false;
+    list.sort((p, q) => r[p].x - r[q].x);
+    for (let i = 0; i < list.length; i++) {
+      const a = r[list[i]], ra = rk(list[i]), reach = a.x + a.w + BUBBLE;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = r[list[j]]; if (b.x >= reach) break;           // sorted by x: the following ones are farther away
+        const rb = rk(list[j]); if (ra >= FROZEN && rb >= FROZEN) continue;
+        const fa = ra > rb, fb = rb > ra;
+        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + BUBBLE;
+        const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + BUBBLE;
+        if (ox <= 0 || oy <= 0) continue;
+        const ka = fa ? 0 : fb ? 1 : 0.5, kb = fb ? 0 : fa ? 1 : 0.5;
+        const sy = a.y + a.h / 2 <= b.y + b.h / 2 ? -1 : 1;
+        // a vertical push is impossible if it would push a node above the ceiling: push sideways instead
+        const hitsCeil = (sy < 0 && ka > 0 && a.y - oy * ka < CEIL) || (sy > 0 && kb > 0 && b.y - oy * kb < CEIL);
+        if (ox < oy || hitsCeil) {
+          const s = a.x + a.w / 2 <= b.x + b.w / 2 ? -1 : 1;
+          a.x += s * ox * ka; b.x -= s * ox * kb;
+        } else {
+          a.y += sy * oy * ka; b.y -= sy * oy * kb;
+        }
+        moved = true;
+      }
+    }
+    for (const id of list) { const q = r[id]; if (q.y < CEIL) { q.y = CEIL; moved = true; } }
+    if (!moved) return true;
+  }
+  return false;
+}
+
+// While dragging, the other nodes are pushed away by the dragged node (soft spring)
+function bubbleLoop() {
+  if (!drag || !drag.moved) { bub = 0; return; }
+  const k = view.k, sr = stage.getBoundingClientRect();
+  const px = (drag.px - sr.left - view.x) / k, py = (drag.py - sr.top - view.y) / k;
+  const r = {}, rank = {}, ids = [], rootId = tree().root.id;
+  for (const n of order) {
+    const id = n.id;
+    if (id === rootId && !drag.ids.has(id)) continue;      // the root stays put and does not take part
+    ids.push(id);
+    if (drag.ids.has(id)) { r[id] = { ...cur[id] }; rank[id] = FROZEN; continue; }
+    const t = tgt[id]; r[id] = { ...t };
+    if (px >= t.x && px <= t.x + t.w && py >= t.y && py <= t.y + t.h) rank[id] = FROZEN;   // reattach target: it does not run away
+  }
+  relax(r, ids, rank);
+  for (const id of ids) {
+    if (drag.ids.has(id)) continue;
+    cur[id].x += (r[id].x - cur[id].x) * 0.3; cur[id].y += (r[id].y - cur[id].y) * 0.3;
+  }
+  paint();
+  bub = requestAnimationFrame(bubbleLoop);
+}
+
+function animateToTargets(instant) {
+  cancelAnimationFrame(raf);
+  const from = {};
+  for (const n of order) {
+    const id = n.id, t = tgt[id];
+    if (cur[id]) from[id] = { x: cur[id].x, y: cur[id].y };
+    else {
+      const pid = vparent.get(id), pc = pid && cur[pid];
+      from[id] = pc ? { x: pc.x + (pc.w - t.w) / 2, y: pc.y + (pc.h - t.h) / 2 } : { x: t.x, y: t.y };
+      if (!instant && pc) {
+        const el = els.get(id); el.classList.add('enter');
+        el.addEventListener('animationend', () => el.classList.remove('enter'), { once: true });
+      }
+    }
+    cur[id] = { x: from[id].x, y: from[id].y, w: t.w, h: t.h };
+  }
+  if (instant || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    for (const n of order) cur[n.id] = { ...tgt[n.id] };
+    paint(); return;
+  }
+  paint();
+  const t0 = performance.now();
+  const step = now => {
+    const k = Math.min(1, (now - t0) / ANIM), e = 1 - Math.pow(1 - k, 3);
+    for (const n of order) {
+      const f = from[n.id], t = tgt[n.id];
+      cur[n.id] = { x: f.x + (t.x - f.x) * e, y: f.y + (t.y - f.y) * e, w: t.w, h: t.h };
+    }
+    paint();
+    if (k < 1) raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+}
+
+function paint() {
+  for (const n of order) { const c = cur[n.id]; els.get(n.id).style.transform = 'translate(' + c.x + 'px,' + c.y + 'px)'; }
+  drawLinks(); placeToolbar();
+}
+
+function drawLinks() {
+  for (const n of order) {
+    const pid = vparent.get(n.id); if (!pid) continue;
+    const p = cur[pid], c = cur[n.id], pa = paths.get(n.id); if (!p || !c || !pa) continue;
+    const x1 = p.x + p.w / 2, y1 = p.y + p.h, x2 = c.x + c.w / 2, y2 = c.y;
+    const dy = Math.max(28, Math.abs(y2 - y1) * 0.5);
+    pa.setAttribute('d', 'M' + x1 + ' ' + y1 + 'C' + x1 + ' ' + (y1 + dy) + ' ' + x2 + ' ' + (y2 - dy) + ' ' + x2 + ' ' + y2);
+    pa.setAttribute('stroke', colorOf.get(n.id));
+  }
+}
+
+// While typing the layout updates immediately, without animation
+function liveLayout() { layout(); for (const n of order) cur[n.id] = { ...tgt[n.id] }; paint(); }
+
+function resetScene() {
+  cancelAnimationFrame(raf);
+  for (const el of els.values()) el.remove(); els.clear();
+  for (const p of paths.values()) p.remove(); paths.clear();
+  for (const k of Object.keys(cur)) delete cur[k];
+  selected = null; editing = null; dragging = false;
+}
+
+function updateChrome() {
+  const sel = $('#treeSel');
+  const key = data.trees.map(t => t.id + '|' + t.root.text).join('§') + data.current;
+  if (sel.dataset.key !== key) {
+    sel.textContent = '';
+    for (const t of data.trees) { const o = document.createElement('option'); o.value = t.id; o.textContent = t.root.text.slice(0, 40); sel.append(o); }
+    sel.value = data.current; sel.dataset.key = key;
+  }
+  $('#undo').disabled = !hist.length; $('#redo').disabled = !redoStack.length;
+  $('#onlyOpen').checked = onlyOpen; $('#numbers').checked = !!data.numbers;
+}
+
+/* =====================================================================
+   VIEW: pan, zoom, fit
+   ===================================================================== */
+function applyView() {
+  world.style.transform = 'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.k + ')';
+  stage.style.backgroundPosition = view.x + 'px ' + view.y + 'px';
+  stage.style.backgroundSize = 28 * view.k + 'px ' + 28 * view.k + 'px';
+  placeToolbar(); scheduleSave();
+}
+function zoomAt(cx, cy, f) {
+  const nk = Math.max(0.2, Math.min(2.5, view.k * f)), r = nk / view.k;
+  view.x = cx - (cx - view.x) * r; view.y = cy - (cy - view.y) * r; view.k = nk; applyView();
+}
+function fit() {
+  if (!order.length) return;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const n of order) { const t = tgt[n.id]; x0 = Math.min(x0, t.x); y0 = Math.min(y0, t.y); x1 = Math.max(x1, t.x + t.w); y1 = Math.max(y1, t.y + t.h); }
+  const W = innerWidth, H = innerHeight, top = $('#bar').getBoundingClientRect().bottom + 36, pad = 40;
+  const bw = x1 - x0, bh = y1 - y0;
+  view.k = Math.max(0.25, Math.min(1, (W - 2 * pad) / bw, (H - top - pad) / bh));
+  view.x = (W - bw * view.k) / 2 - x0 * view.k;      // horizontally centered
+  view.y = top - y0 * view.k;                         // the root starts at the top
+}
+function centerOn(id) {
+  const c = tgt[id]; if (!c) return;
+  view.x = innerWidth / 2 - (c.x + c.w / 2) * view.k; view.y = innerHeight / 2 - (c.y + c.h / 2) * view.k; applyView();
+}
+function openTree() {
+  finishEdit(false); resetScene();
+  const t = tree(), need = !t.view;
+  if (need) t.view = { x: 0, y: 0, k: 1 };
+  view = t.view;
+  render({ instant: true });
+  if (need) fit();
+  applyView();
+}
+
+/* =====================================================================
+   SELECTION AND NODE TOOLBAR
+   ===================================================================== */
+function select(id) {
+  if (selected !== id) noteOpen = false;
+  selected = id;
+  for (const [i, el] of els) el.classList.toggle('sel', i === id);
+  updateToolbar(); placeToolbar();
+}
+
+function buildSwatches() {
+  const sw = $('#sw');
+  const mkSw = (color, cls) => {
+    const b = document.createElement('button'); b.className = 'sw ' + (cls || ''); b.dataset.color = color || '';
+    b.title = color ? 'Color' : 'Automatic color'; b.setAttribute('aria-label', b.title);
+    if (color) b.style.background = color; sw.append(b);
+  };
+  PALETTE.forEach(c => mkSw(c)); mkSw('', 'auto');
+}
+
+function updateToolbar() {
+  const n = selected && byId.get(selected); if (!n) return;
+  const isRoot = n.id === tree().root.id;
+  tb.querySelector('[data-a=sib]').hidden = isRoot;
+  tb.querySelector('[data-a=del]').hidden = isRoot;
+  tb.querySelector('[data-a=prio]').textContent = 'Priority: ' + (n.prio ? PRIO[n.prio] : '—');
+  $('#due').value = n.due || '';
+  const nt = $('#note'); nt.hidden = !noteOpen; if (document.activeElement !== nt) nt.value = n.note || '';
+  tb.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', (b.dataset.color || '') === (n.color || '')));
+}
+
+function placeToolbar() {
+  const el = selected && els.get(selected);
+  if (!el || editing || dragging || pinch || cardId) { tb.hidden = true; return; }
+  tb.hidden = false;
+  const r = el.getBoundingClientRect(), w = tb.offsetWidth, h = tb.offsetHeight;
+  const top = $('#bar').getBoundingClientRect().bottom;
+  const x = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+  let y = r.top - h - 12; if (y < top + 6) y = r.bottom + 20;
+  y = Math.max(top + 6, Math.min(innerHeight - h - 8, y));
+  tb.style.left = x + 'px'; tb.style.top = y + 'px';
+}
+
+/* =====================================================================
+   TEXT EDITING
+   ===================================================================== */
+function startEdit(id, isNew) {
+  if (editing === id) return;
+  finishEdit(true);
+  const el = els.get(id); if (!el) return;
+  const t = el.querySelector('.txt');
+  editing = id; preSnap = isNew ? null : snap();
+  el.classList.add('editing'); t.contentEditable = 'true'; tb.hidden = true;
+  t.focus();
+  const r = document.createRange(); r.selectNodeContents(t);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+
+function finishEdit(saveIt) {
+  closeCard();
+  if (editing == null) return;
+  const id = editing; editing = null;
+  const el = els.get(id), n = byId.get(id);
+  if (!el || !n) return;
+  const t = el.querySelector('.txt');
+  const val = t.textContent.replace(/\s+/g, ' ').trim();
+  t.contentEditable = 'false'; el.classList.remove('editing');
+  getSelection().removeAllRanges();
+  if (saveIt && val && val !== n.text) { if (preSnap) pushHist(preSnap); n.text = val; scheduleSave(); }
+  preSnap = null;
+  render();
+}
+
+/* =====================================================================
+   NODE ACTIONS
+   ===================================================================== */
+function addNode(p, at) {
+  finishEdit(true); commit();
+  const n = mk('New note');
+  if (at == null) p.children.push(n); else p.children.splice(at, 0, n);
+  p.collapsed = false; selected = n.id;
+  render(); scheduleSave(); startEdit(n.id, true);
+}
+function addSibling(id) {
+  const p = byId.get(parentOf.get(id));
+  if (!p) return addNode(byId.get(id));
+  addNode(p, p.children.findIndex(c => c.id === id) + 1);
+}
+function delNode(id) {
+  const root = tree().root;
+  if (id === root.id) { toast('The root cannot be deleted: use "Delete" at the top to remove the whole tree'); return; }
+  const p = byId.get(parentOf.get(id)), i = p.children.findIndex(c => c.id === id);
+  commit(); p.children.splice(i, 1); selected = p.id; render(); scheduleSave();
+  toast('Node deleted', 'Undo', undo);
+}
+// Sets "done" on every leaf under n; repeating leaves do not stay done: they advance to the next due date
+function applyDone(n, target) {
+  const reps = [];
+  (function set(x) {
+    if (x.children.length) x.children.forEach(set);
+    else if (target && x.rep) { advanceRepeat(x); reps.push(x); }
+    else x.done = target;
+  })(n);
+  return reps;
+}
+function toggleDone(id) {
+  const n = byId.get(id), s = stats.get(id), target = s.d < s.t;
+  commit();
+  const reps = applyDone(n, target);
+  render(); scheduleSave();
+  if (reps.length) toast('↻ Repeated: next due date ' + fmtDate(reps[0].due) + (reps.length > 1 ? ' (+' + (reps.length - 1) + ')' : ''), 'Undo', undo);
+}
+function toggleCollapse(id) { const n = byId.get(id); commit(); n.collapsed = !n.collapsed; render(); scheduleSave(); }
+
+/* =====================================================================
+   NODE CARD (double click): title, done, priority, dates and repeat, color, checklist, tags, notes.
+   Changes apply immediately; when the card closes they become ONE single undo/redo step.
+   ===================================================================== */
+const card = $('#card');
+let cardId = null, cardSnap = null;
+const cardNode = () => (cardId && byId.get(cardId)) || null;
+const hasKids = n => n.children.length > 0;
+
+function openCard(id) {
+  if (!byId.has(id)) return;
+  if (cardId === id) { $('#c-title').focus(); return; }
+  finishEdit(true);                                    // this also closes a card that is already open on another node
+  cardId = id; cardSnap = snap();
+  select(id);
+  card.hidden = false; tb.hidden = true;
+  placeCard(); fillCard(); keepVisible(id);
+  card.querySelector('.cbody').scrollTop = 0;
+  const t = $('#c-title'); t.focus({ preventScroll: true }); t.select();
+}
+
+function closeCard() {
+  if (!cardId) return;
+  const n = cardNode();
+  if (n) { const it = n.items; if (it) { n.items = it.filter(i => i.t.trim()); if (!n.items.length) delete n.items; } }   // no empty items
+  if (cardSnap && snap() !== cardSnap) pushHist(cardSnap);
+  cardId = null; cardSnap = null; card.hidden = true;
+  if (card.contains(document.activeElement)) document.activeElement.blur();
+  if (byId.size) { render(); placeToolbar(); }
+  scheduleSave();
+}
+
+function placeCard() {
+  if (innerWidth > 700) card.style.top = Math.round($('#bar').getBoundingClientRect().bottom + 8) + 'px';
+  else card.style.top = '';
+}
+// The card must not cover the node: if needed, the view is shifted
+function keepVisible(id) {
+  const el = els.get(id); if (!el) return;
+  const r = el.getBoundingClientRect(), cr = card.getBoundingClientRect();
+  if (innerWidth > 700) { const limit = cr.left - 24; if (r.right > limit) { view.x -= r.right - limit; applyView(); } }
+  else { const limit = cr.top - 16; if (r.bottom > limit) { view.y -= r.bottom - limit; applyView(); } }
+}
+
+// After every change: redraw the tree (the node may change size) and save
+function touchCard() { render({ instant: true }); scheduleSave(); }
+
+function fillCard() {
+  const n = cardNode(); if (!n) return;
+  const s = stats.get(n.id), all = s.d === s.t, kids = hasKids(n);
+  $('#c-title').value = n.text;
+  const dn = $('#c-done'); dn.checked = all; dn.indeterminate = s.d > 0 && !all;
+  $('#c-doneL').textContent = kids ? 'Done (' + s.d + '/' + s.t + ' sub-nodes)' : 'Done';
+  card.querySelectorAll('#c-prio button').forEach(b => b.classList.toggle('on', +b.dataset.p === (n.prio || 0)));
+  $('#c-start').value = n.start || ''; $('#c-due').value = n.due || '';
+  const rep = $('#c-rep'); rep.value = n.rep || ''; rep.disabled = kids;
+  $('#c-rephint').textContent = kids ? 'Repeating only applies to nodes without sub-nodes.' : 'When you mark the node as done, the due date moves to the next cycle.';
+  card.querySelectorAll('#c-sw .sw').forEach(b => b.classList.toggle('on', (b.dataset.color || '') === (n.color || '')));
+  renderItems(); renderTags();
+  $('#c-note').value = n.note || '';
+  $('#c-del').hidden = n.id === tree().root.id;
+}
+
+function itemsCount() {
+  const n = cardNode(), it = (n && n.items) || [];
+  $('#c-itemsN').textContent = it.length ? it.filter(i => i.d).length + '/' + it.length : '';
+}
+function renderItems(focusAt) {
+  const n = cardNode(), box = $('#c-items'); box.textContent = '';
+  (n.items || []).forEach((it, i) => {
+    const row = document.createElement('div'); row.className = 'irow' + (it.d ? ' done' : '');
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = it.d; cb.setAttribute('aria-label', 'Item completed');
+    const tx = document.createElement('input'); tx.type = 'text'; tx.value = it.t; tx.maxLength = 300; tx.setAttribute('aria-label', 'Item');
+    const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.title = 'Remove item'; x.setAttribute('aria-label', 'Remove item');
+    cb.onchange = () => { it.d = cb.checked; row.classList.toggle('done', it.d); itemsCount(); touchCard(); };
+    tx.oninput = () => { it.t = tx.value.slice(0, 300); scheduleSave(); };
+    tx.onchange = () => touchCard();
+    tx.onkeydown = e => {
+      if (e.key === 'Enter') {
+        e.preventDefault(); if (!tx.value.trim()) return;
+        n.items.splice(i + 1, 0, { t: '', d: false }); renderItems(i + 1); itemsCount();
+      } else if (e.key === 'Backspace' && !tx.value) {
+        e.preventDefault(); n.items.splice(i, 1); if (!n.items.length) delete n.items;
+        renderItems(i - 1); itemsCount(); touchCard();
+      }
+    };
+    x.onclick = () => { n.items.splice(i, 1); if (!n.items.length) delete n.items; renderItems(); itemsCount(); touchCard(); };
+    row.append(cb, tx, x); box.append(row);
+  });
+  if (focusAt != null) {
+    const f = box.querySelectorAll('.irow input[type=text]')[focusAt];
+    if (f) f.focus(); else $('#c-add').focus();
+  }
+  itemsCount();
+}
+function addItems(lines) {
+  const n = cardNode(); if (!n) return;
+  const vals = lines.map(l => l.replace(/^\s*(?:[-*+•]|\d+[.)]|\[[ xX]\])\s+/, '').replace(/\s+/g, ' ').trim().slice(0, 300)).filter(Boolean);
+  if (!vals.length) return;
+  n.items = (n.items || []).concat(vals.map(t => ({ t, d: false }))).slice(0, 100);
+  renderItems(); touchCard();
+}
+
+function renderTags() {
+  const n = cardNode(), box = $('#c-tags'); box.textContent = '';
+  (n.tags || []).forEach((t, i) => {
+    const c = document.createElement('span'); c.className = 'tagc';
+    const s = document.createElement('span'); s.textContent = '#' + t;
+    const x = document.createElement('button'); x.textContent = '×'; x.title = 'Remove tag'; x.setAttribute('aria-label', 'Remove tag ' + t);
+    x.onclick = () => { n.tags.splice(i, 1); if (!n.tags.length) delete n.tags; renderTags(); touchCard(); };
+    c.append(s, x); box.append(c);
+  });
+}
+function addTag(raw) {
+  const n = cardNode(); if (!n) return;
+  for (const part of raw.split(/[,;]+/)) {
+    const v = cleanTag(part); if (!v) continue;
+    n.tags = n.tags || [];
+    if (n.tags.length < 12 && !n.tags.some(t => t.toLowerCase() === v.toLowerCase())) n.tags.push(v);
+  }
+  renderTags(); touchCard();
+}
+
+function setField(key, val) {
+  const n = cardNode(); if (!n) return;
+  if (val === '' || val == null || val === 0) delete n[key]; else n[key] = val;
+  touchCard();
+}
+
+function bindCard() {
+  const on = (sel, ev, fn) => $(sel).addEventListener(ev, fn);
+  const sw = $('#c-sw');
+  PALETTE.forEach(c => { const b = document.createElement('button'); b.className = 'sw'; b.dataset.color = c; b.style.background = c; b.title = 'Color'; b.setAttribute('aria-label', 'Color'); sw.append(b); });
+  const auto = document.createElement('button'); auto.className = 'sw auto'; auto.dataset.color = ''; auto.title = 'Automatic color'; auto.setAttribute('aria-label', 'Automatic color'); sw.append(auto);
+  sw.addEventListener('click', e => { const b = e.target.closest('.sw'); if (!b) return; setField('color', b.dataset.color); fillCard(); });
+
+  on('#c-title', 'input', e => { const n = cardNode(); const v = e.target.value.replace(/\s+/g, ' ').trim(); if (n && v) { n.text = v.slice(0, 400); touchCard(); } });
+  on('#c-title', 'keydown', e => { if (e.key === 'Enter') { e.preventDefault(); closeCard(); } });
+  on('#c-title', 'blur', e => { const n = cardNode(); if (n && !e.target.value.trim()) e.target.value = n.text; });
+  on('#c-close', 'click', closeCard); on('#c-ok', 'click', closeCard);
+  on('#c-del', 'click', () => { const id = cardId; closeCard(); if (id) delNode(id); });
+  on('#c-done', 'change', e => {
+    const n = cardNode(); if (!n) return;
+    const reps = applyDone(n, e.target.checked); touchCard(); fillCard();
+    if (reps.length) toast('↻ Repeated: next due date ' + fmtDate(reps[0].due));
+  });
+  on('#c-prio', 'click', e => { const b = e.target.closest('button'); if (!b) return; setField('prio', +b.dataset.p); fillCard(); });
+  on('#c-start', 'change', e => { setField('start', e.target.value); fillCard(); });
+  on('#c-due', 'change', e => { setField('due', e.target.value); fillCard(); });
+  on('#c-rep', 'change', e => {
+    const n = cardNode(); if (!n) return;
+    if (e.target.value && !n.due) n.due = todayISO();      // repeating needs a due date
+    setField('rep', e.target.value); fillCard();
+  });
+  card.querySelector('.quick').addEventListener('click', e => {
+    const b = e.target.closest('[data-q]'); const n = cardNode(); if (!b || !n) return;
+    if (b.dataset.q === 'x') { delete n.start; delete n.due; delete n.rep; }
+    else n.due = addDays(todayISO(), +b.dataset.q);
+    touchCard(); fillCard();
+  });
+  on('#c-add', 'keydown', e => {
+    if (e.key !== 'Enter') return; e.preventDefault();
+    const v = e.target.value; e.target.value = ''; addItems([v]); $('#c-add').focus();
+  });
+  on('#c-add', 'paste', e => {
+    const txt = (e.clipboardData || window.clipboardData).getData('text/plain');
+    if (!/\r?\n/.test(txt)) return;
+    e.preventDefault(); addItems(txt.split(/\r?\n/)); $('#c-add').focus();
+  });
+  on('#c-add', 'blur', e => { const v = e.target.value; if (v.trim()) { e.target.value = ''; addItems([v]); } });
+  on('#c-tagin', 'keydown', e => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); const v = e.target.value; e.target.value = ''; addTag(v); }
+  });
+  on('#c-tagin', 'blur', e => { const v = e.target.value; if (v.trim()) { e.target.value = ''; addTag(v); } });
+  on('#c-note', 'input', e => {
+    const n = cardNode(); if (!n) return;
+    const v = e.target.value.slice(0, 2000); if (v.trim()) n.note = v; else delete n.note; scheduleSave();
+  });
+  on('#c-note', 'change', () => touchCard());
+  card.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closeCard(); } });
+  window.addEventListener('resize', () => { if (cardId) placeCard(); });
+}
+
+function reparent(id, tid) {
+  const n = byId.get(id), np = byId.get(tid), op = byId.get(parentOf.get(id));
+  commit();
+  op.children = op.children.filter(c => c !== n); np.children.push(n); np.collapsed = false;
+  delete n.dx; delete n.dy; selected = id;
+  render(); scheduleSave();
+}
+
+// Drop in free space: the node stays where you leave it; passing a sibling changes the order.
+function freeDrop(d, e) {
+  const id = d.id, n = byId.get(id), k = view.k;
+  const t0 = tgt[id], sn = e.altKey ? (v => v) : toGrid;
+  const want = { x: sn(t0.x + (e.clientX - d.sx) / k), y: Math.max(CEIL, sn(t0.y + (e.clientY - d.sy) / k)) };
+  commit();
+  const p = byId.get(parentOf.get(id));
+  let reordered = false;
+  if (p && p.children.length > 1) {
+    const cx = want.x + t0.w / 2, vis = new Set(vkids(p).map(c => c.id));
+    const others = p.children.filter(c => c.id !== id);
+    let at = 0;
+    others.forEach((s, j) => { if (vis.has(s.id) && tgt[s.id].x + tgt[s.id].w / 2 < cx) at = j + 1; });
+    others.splice(at, 0, n);
+    if (others.some((c, j) => c !== p.children[j])) { p.children = others; reordered = true; }
+  }
+  if (reordered) layout();
+  n.dx = (n.dx || 0) + want.x - baseT[id].x; n.dy = (n.dy || 0) + want.y - baseT[id].y;
+  if (Math.abs(n.dx) < 1 && Math.abs(n.dy) < 1) { delete n.dx; delete n.dy; }
+  render(); scheduleSave();
+}
+
+function newTree() {
+  finishEdit(true); commit();
+  const t = { id: uid(), root: mk('New process'), view: null };
+  data.trees.push(t); data.current = t.id; openTree(); scheduleSave();
+  select(t.root.id); startEdit(t.root.id, true);
+}
+function delTree() {
+  const t = tree();
+  if (!confirm('Delete the tree "' + t.root.text + '"?')) return;
+  finishEdit(false); commit();
+  const i = data.trees.indexOf(t); data.trees.splice(i, 1);
+  if (!data.trees.length) data.trees.push({ id: uid(), root: mk('New process'), view: null });
+  data.current = data.trees[Math.min(i, data.trees.length - 1)].id;
+  openTree(); scheduleSave(); toast('Tree deleted', 'Undo', undo);
+}
+
+/* =====================================================================
+   INTERACTION: drag, pan, pinch, zoom
+   ===================================================================== */
+function abortGestures() {
+  if (drag && drag.moved) {
+    dragging = false;
+    for (const i of drag.ids) { const el = els.get(i); if (el) el.classList.remove('drag'); }
+    if (drag.target && els.get(drag.target)) els.get(drag.target).classList.remove('drop');
+    render();
+  }
+  drag = null; pan = null;
+}
+
+stage.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2) {
+    abortGestures();
+    const [a, b] = [...pointers.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+    tb.hidden = true; return;
+  }
+  if (pointers.size > 2) return;
+  if (e.target.closest('.chk,.fold')) return;
+  const nd = e.target.closest('.node');
+  if (editing) { if (nd && nd.dataset.id === editing) return; finishEdit(true); }
+  if (cardId && !(nd && nd.dataset.id === cardId)) closeCard();     // click elsewhere: the card closes
+  if (nd) {
+    const id = nd.dataset.id; select(id);
+    const ids = new Set();
+    (function c(x) { ids.add(x.id); x.children.forEach(c); })(byId.get(id));
+    const start = {};
+    for (const i of ids) if (cur[i]) start[i] = { x: cur[i].x, y: cur[i].y };
+    drag = { id, sx: e.clientX, sy: e.clientY, moved: false, ids, start, target: null, pid: e.pointerId };
+  } else {
+    pan = { sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y, moved: false };
+  }
+});
+
+window.addEventListener('pointermove', e => {
+  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && pointers.size >= 2) {
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    view.x += cx - pinch.cx; view.y += cy - pinch.cy;
+    zoomAt(cx, cy, d / pinch.d); pinch = { d, cx, cy }; return;
+  }
+  if (drag && e.pointerId === drag.pid) {
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < 5) return;
+      drag.moved = true; dragging = true; cancelAnimationFrame(raf); tb.hidden = true;
+      for (const i of drag.ids) { const el = els.get(i); if (el) el.classList.add('drag'); }
+    }
+    drag.px = e.clientX; drag.py = e.clientY;
+    let minY = Infinity;                                   // ceiling: the dragged branch does not go above CEIL
+    for (const i of drag.ids) if (drag.start[i]) minY = Math.min(minY, drag.start[i].y);
+    let dxw = dx / view.k, dyw = dy / view.k;
+    const s0 = drag.start[drag.id];
+    if (s0 && !e.altKey) { dxw = toGrid(s0.x + dxw) - s0.x; dyw = toGrid(s0.y + dyw) - s0.y; }   // grid (Alt = free)
+    dyw = Math.max(dyw, CEIL - minY);
+    for (const i of drag.ids) {
+      const s = drag.start[i]; if (s && cur[i]) { cur[i].x = s.x + dxw; cur[i].y = s.y + dyw; }
+    }
+    paint();
+    if (!bub) bub = requestAnimationFrame(bubbleLoop);
+    let tid = null;
+    if (drag.id !== tree().root.id) {
+      // target = node (at its resting position) under the pointer
+      const sr = stage.getBoundingClientRect();
+      const px = (e.clientX - sr.left - view.x) / view.k, py = (e.clientY - sr.top - view.y) / view.k;
+      for (let i = order.length - 1; i >= 0; i--) {
+        const id = order[i].id, t = tgt[id];
+        if (drag.ids.has(id) || id === parentOf.get(drag.id)) continue;
+        if (px >= t.x && px <= t.x + t.w && py >= t.y && py <= t.y + t.h) { tid = id; break; }
+      }
+    }
+    if (tid !== drag.target) {
+      if (drag.target && els.get(drag.target)) els.get(drag.target).classList.remove('drop');
+      if (tid) els.get(tid).classList.add('drop');
+      drag.target = tid;
+    }
+    return;
+  }
+  if (pan && !pinch) {
+    const dx = e.clientX - pan.sx, dy = e.clientY - pan.sy;
+    if (!pan.moved && Math.hypot(dx, dy) < 4) return;
+    pan.moved = true; view.x = pan.vx + dx; view.y = pan.vy + dy; applyView();
+  }
+});
+
+function endPointer(e, cancelled) {
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2 && pinch) { pinch = null; placeToolbar(); }
+  if (drag && e.pointerId === drag.pid) {
+    const d = drag; drag = null;
+    if (d.moved) {
+      dragging = false;
+      for (const i of d.ids) { const el = els.get(i); if (el) el.classList.remove('drag'); }
+      if (d.target && els.get(d.target)) els.get(d.target).classList.remove('drop');
+      if (cancelled) render();
+      else if (d.target) reparent(d.id, d.target);
+      else freeDrop(d, e);
+    } else if (!cancelled) {
+      const now = performance.now();           // double tap / double click = open the card
+      if (lastTap.id === d.id && now - lastTap.t < 380) { lastTap = { id: null, t: 0 }; openCard(d.id); }
+      else lastTap = { id: d.id, t: now };
+    }
+    return;
+  }
+  if (pan) { if (!pan.moved && !cancelled) select(null); pan = null; }
+}
+window.addEventListener('pointerup', e => endPointer(e, false));
+window.addEventListener('pointercancel', e => endPointer(e, true));
+
+stage.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 16 : 1) * (e.ctrlKey ? 0.012 : 0.0016));
+  zoomAt(e.clientX, e.clientY, f);
+}, { passive: false });
+
+world.addEventListener('click', e => {
+  const nd = e.target.closest('.node'); if (!nd) return;
+  const id = nd.dataset.id;
+  if (e.target.closest('.chk')) { select(id); toggleDone(id); }
+  else if (e.target.closest('.fold')) { select(id); toggleCollapse(id); }
+});
+
+/* =====================================================================
+   KEYBOARD
+   ===================================================================== */
+document.addEventListener('keydown', e => {
+  const mod = e.ctrlKey || e.metaKey, t = e.target;
+  if (cardId && card.contains(t)) return;     // inside the card the keys belong to its fields (Esc closes it, see bindCard)
+  const typing = t.matches && t.matches('input,textarea,select,[contenteditable="true"]');
+  const k = e.key.toLowerCase();
+  if (mod && !typing && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && !typing && k === 'y') { e.preventDefault(); redo(); return; }
+  if (mod && k === 'f') { e.preventDefault(); const s = $('#search'); s.focus(); s.select(); return; }
+  if (typing) {
+    if (e.key === 'Escape' && t.id === 'search') { t.value = ''; query = ''; t.blur(); render(); }
+    return;
+  }
+  if (mod) return;
+  const root = tree().root;
+  if (!selected && ['Tab', 'Enter', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    e.preventDefault(); select(root.id); return;
+  }
+  const id = selected, n = id && byId.get(id); if (!n) return;
+  switch (e.key) {
+    case 'Tab': e.preventDefault(); addNode(n); break;
+    case 'Enter': e.preventDefault(); addSibling(id); break;
+    case 'Delete': case 'Backspace': e.preventDefault(); delNode(id); break;
+    case ' ': e.preventDefault(); toggleDone(id); break;
+    case 'F2': e.preventDefault(); openCard(id); break;
+    case 'Escape': select(null); break;
+    case 'ArrowDown': { e.preventDefault(); const c = vkids(n)[0]; if (c) select(c.id); break; }
+    case 'ArrowUp': { e.preventDefault(); const p = vparent.get(id); if (p) select(p); break; }
+    case 'ArrowLeft': case 'ArrowRight': {
+      e.preventDefault();
+      const p = byId.get(vparent.get(id)); if (!p) break;
+      const sib = vkids(p), i = sib.findIndex(c => c.id === id) + (e.key === 'ArrowLeft' ? -1 : 1);
+      if (sib[i]) select(sib[i].id); break;
+    }
+  }
+});
+document.addEventListener('click', e => { const b = e.target.closest('#bar button,#tb button'); if (b) b.blur(); });
+
+/* =====================================================================
+   IMPORT / EXPORT
+   ===================================================================== */
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+const slug = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'tree';
+// Markdown: "- [ ] text @due ^start !priority #tag"; the note goes in "> …" lines and the checklist in nested items
+const PRIO_MD = ['', 'low', 'medium', 'high'];
+function toMd(n, d = 0) {
+  const box = n.children.length ? '' : (n.done ? '[x] ' : '[ ] '), pad = '  '.repeat(d);
+  let tok = '';
+  if (n.start) tok += ' ^' + n.start;
+  if (n.due) tok += ' @' + n.due;
+  if (n.prio) tok += ' !' + PRIO_MD[n.prio];
+  if (n.tags) tok += n.tags.map(t => ' #' + t).join('');
+  let s = pad + '- ' + box + n.text + tok + '\n';
+  if (n.note) s += n.note.split(/\r?\n/).map(l => pad + '  > ' + l).join('\n') + '\n';
+  if (n.items) n.items.forEach(i => { s += pad + '  - [' + (i.d ? 'x' : ' ') + '] ' + i.t + '\n'; });
+  n.children.forEach(k => { s += toMd(k, d + 1); });
+  return s;
+}
+// Strips the trailing @date ^date !priority #tag markers from the text and returns them as node fields
+function mdMeta(text) {
+  const meta = {}, tags = [];
+  let m;
+  while ((m = text.match(/\s([@^!#])(\S+)$/))) {
+    const [, k, v] = m;
+    if (k === '@' && /^\d{4}-\d{2}-\d{2}$/.test(v)) meta.due = v;
+    else if (k === '^' && /^\d{4}-\d{2}-\d{2}$/.test(v)) meta.start = v;
+    else if (k === '!' && PRIO_MD.indexOf(v.toLowerCase()) > 0) meta.prio = PRIO_MD.indexOf(v.toLowerCase());
+    else if (k === '#') tags.unshift(v);
+    else break;
+    text = text.slice(0, m.index);
+  }
+  if (tags.length) meta.tags = tags;
+  return { text: text.trim(), meta };
+}
+function parseMd(txt, name) {
+  const items = [];
+  for (const l of txt.split(/\r?\n/)) {
+    if (!l.trim()) continue;
+    const q = l.match(/^\s*>\s?(.*)$/);
+    if (q) { items.push({ note: q[1] }); continue; }
+    const m = l.match(/^(\s*)(?:[-*+]|\d+[.)])\s+(?:\[([ xX])\]\s+)?(.*)$/);
+    if (m) { const p = mdMeta(m[3].trim()); items.push({ ind: m[1].replace(/\t/g, '  ').length, text: p.text, meta: p.meta, done: !!m[2] && m[2] !== ' ' }); }
+    else items.push({ ind: -1, text: l.replace(/^#+\s*/, '').trim(), meta: {}, done: false });
+  }
+  const root = { text: name || 'Imported', children: [] }, stack = [{ ind: -2, node: root }];
+  for (const it of items) {
+    if ('note' in it) {                              // "> …" line: note of the last node
+      const last = stack[stack.length - 1].node; if (last !== root) last.note = last.note ? last.note + '\n' + it.note : it.note;
+      continue;
+    }
+    const node = Object.assign({ text: it.text, done: it.done, children: [] }, it.meta);
+    while (stack[stack.length - 1].ind >= it.ind) stack.pop();
+    stack[stack.length - 1].node.children.push(node); stack.push({ ind: it.ind, node });
+  }
+  return root.children.length === 1 ? root.children[0] : root;
+}
+
+$('#expJson').onclick = () => {
+  const out = { app: 'trees', v: 1, exported: new Date().toISOString(), trees: data.trees.map(t => ({ id: t.id, root: t.root })) };
+  download('trees-backup-' + todayISO() + '.json', JSON.stringify(out, null, 2), 'application/json');
+};
+$('#expMd').onclick = () => download(slug(tree().root.text) + '.md', toMd(tree().root), 'text/markdown');
+$('#imp').onclick = () => $('#file').click();
+$('#file').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const txt = await f.text(); let roots;
+    if (/\.json$/i.test(f.name) || /^\s*[\[{]/.test(txt)) {
+      const j = JSON.parse(txt);
+      const arr = Array.isArray(j) ? j : Array.isArray(j.trees) ? j.trees : [j];
+      roots = arr.map(t => (t && t.root ? t.root : t)).filter(r => r && typeof r === 'object');
+    } else roots = [parseMd(txt, f.name.replace(/\.[^.]+$/, ''))];
+    if (!roots.length) throw new Error('empty');
+    finishEdit(true); commit();
+    const added = roots.map(r => ({ id: uid(), root: clean(r, new Set()), view: null }));
+    data.trees.push(...added); data.current = added[0].id;
+    openTree(); scheduleSave();
+    toast(added.length === 1 ? 'Tree imported' : added.length + ' trees imported');
+  } catch (err) { toast('Import failed: invalid file'); }
+});
+
+/* =====================================================================
+   UI: toast, bar, theme
+   ===================================================================== */
+function toast(msg, label, fn) {
+  const t = $('#toast'); t.textContent = '';
+  const s = document.createElement('span'); s.textContent = msg; t.append(s);
+  if (label) { const b = document.createElement('button'); b.textContent = label; b.onclick = () => { t.hidden = true; fn(); }; t.append(b); }
+  t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 5500);
+}
+
+function bindUI() {
+  buildSwatches(); bindCard();
+  $('#treeSel').onchange = e => { data.current = e.target.value; openTree(); scheduleSave(); };
+  $('#newTree').onclick = newTree; $('#delTree').onclick = delTree;
+  $('#search').addEventListener('input', e => { query = e.target.value; render(); });
+  $('#search').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !searching()) return;
+    const q = query.trim().toLowerCase(), hit = order.find(n => matches(n, q));
+    if (hit) { select(hit.id); centerOn(hit.id); }
+  });
+  $('#onlyOpen').onchange = e => { onlyOpen = e.target.checked; render(); };
+  $('#numbers').onchange = e => { data.numbers = e.target.checked; render(); scheduleSave(); };
+  $('#undo').onclick = undo; $('#redo').onclick = redo;
+  $('#reorder').onclick = () => mutate(() => { (function z(n) { delete n.dx; delete n.dy; n.children.forEach(z); })(tree().root); });
+  $('#fit').onclick = () => { fit(); applyView(); };
+  $('#theme').onclick = () => {
+    data.theme = data.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = data.theme; scheduleSave();
+  };
+  tb.addEventListener('click', e => {
+    const sw = e.target.closest('.sw');
+    if (sw && selected) { const c = sw.dataset.color; mutate(() => { const n = byId.get(selected); if (c) n.color = c; else delete n.color; }); return; }
+    const b = e.target.closest('[data-a]'); if (!b || !selected) return;
+    const n = byId.get(selected);
+    switch (b.dataset.a) {
+      case 'child': addNode(n); break;
+      case 'sib': addSibling(n.id); break;
+      case 'prio': mutate(() => { const p = ((n.prio || 0) + 1) % 4; if (p) n.prio = p; else delete n.prio; }); break;
+      case 'card': openCard(n.id); break;
+      case 'note': noteOpen = !noteOpen; updateToolbar(); placeToolbar(); if (noteOpen) $('#note').focus(); break;
+      case 'del': delNode(n.id); break;
+    }
+  });
+  $('#due').addEventListener('change', e => {
+    if (!selected) return; const v = e.target.value;
+    mutate(() => { const n = byId.get(selected); if (v) n.due = v; else delete n.due; });
+  });
+  let noteSnap = null;
+  $('#note').addEventListener('focus', () => { noteSnap = snap(); });
+  $('#note').addEventListener('change', e => {
+    const n = selected && byId.get(selected); if (!n) return;
+    const v = e.target.value.trim().slice(0, 2000);
+    if (v === (n.note || '')) return;
+    if (noteSnap) pushHist(noteSnap);
+    if (v) n.note = v; else delete n.note;
+    render(); scheduleSave();
+  });
+  $('#note').addEventListener('keydown', e => { if (e.key === 'Escape') e.target.blur(); });
+  window.addEventListener('resize', placeToolbar);
+  window.addEventListener('beforeunload', () => { if (saveT) save(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && saveT) save(); });
+  // If the app is open in two tabs, the other tab updates this one
+  window.addEventListener('storage', e => {
+    if (e.key !== KEY || !e.newValue || editing != null || dragging || cardId) return;
+    try {
+      data = normalize(JSON.parse(e.newValue)); document.documentElement.dataset.theme = data.theme;
+      hist.length = 0; redoStack.length = 0; openTree(); toast('Updated from another tab');
+    } catch (err) { /* ignore */ }
+  });
+}
+
+/* =====================================================================
+   STARTUP
+   ===================================================================== */
+data = load();
+document.documentElement.dataset.theme = data.theme;
+bindUI();
+openTree();
+if (!storageOK) setSaved('⚠ Saving unavailable: use JSON backup', true);
+else setSaved('Saved locally');
+window.__trees = { get data() { return data; }, save, render, toMd };   // handy for console debugging (also used by the tests)
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "todotree",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Jacopo Garau",
+  "description": "Interactive cloud-node trees for process flows and to-dos (single HTML file, offline).",
+  "scripts": {
+    "test": "node tests/run.js && node tests/fuzz.js",
+    "test:fuzz": "node tests/fuzz.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.50.0"
+  }
+}

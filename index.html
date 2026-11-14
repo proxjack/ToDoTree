@@ -146,6 +146,37 @@ input[type=search]{width:140px}
 .chint{font-size:11px;color:var(--muted);margin-top:4px}
 @media (max-width:700px){#card{top:auto!important;left:10px;right:10px;width:auto;height:64vh}}
 
+/* ---------- Google Drive backup dialog ---------- */
+#drv{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(10,12,18,.42);padding:16px}
+.mbox{width:min(460px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--surface);color:var(--ink);
+  border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:14px 16px 16px;user-select:text;-webkit-user-select:text}
+.mbox header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.mbox h3{margin:0;font-size:16px}
+.dnote{font-size:12px;color:var(--muted);margin:4px 0 10px}
+.dlab{display:block;font-size:12px;color:var(--muted)}
+.dlab input{width:100%;margin-top:3px;color:var(--ink)}
+.drow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.pri:hover{background:color-mix(in srgb,var(--accent) 85%,#000)}
+.mbox .btn{border-color:var(--line)}
+.dauto{padding:0;margin:4px 0 0}
+.dstatus{font-size:12.5px;margin-top:8px;min-height:18px;color:var(--muted)}
+.dstatus.err{color:#e5604d}
+.dstatus.ok{color:#2fa36b}
+#drive::after{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;vertical-align:middle;background:transparent}
+#drive.ok::after{background:#2fa36b}
+#drive.auth::after{background:#e0a21b}
+#drive.err::after{background:#e5604d}
+#drive.busy::after{background:var(--accent);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+
+/* narrow screens: the top bar becomes a single scrollable row instead of taking half the screen */
+@media (max-width:700px){
+  #bar{flex-wrap:nowrap;overflow-x:auto;pointer-events:auto;scrollbar-width:none;left:6px;right:6px;padding-bottom:3px}
+  #bar::-webkit-scrollbar{display:none}
+  .grp{flex:none}
+}
+
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:40;display:flex;gap:12px;align-items:center;
   background:#2a2d33;color:#fff;border-radius:14px;padding:9px 14px;box-shadow:var(--shadow);font-size:13px;max-width:92vw}
 #toast button{font:inherit;font-weight:700;color:#9db0ff;background:none;border:0;cursor:pointer;padding:0}
@@ -178,6 +209,7 @@ input[type=search]{width:140px}
     <button class="btn" id="expJson" title="Download a backup of all trees">JSON backup</button>
     <button class="btn" id="expMd" title="Export the current tree as a Markdown list">Markdown</button>
     <button class="btn" id="imp" title="Import a JSON backup or a Markdown list">Import</button>
+    <button class="btn" id="drive" title="Back up to Google Drive">☁ Drive</button>
     <button class="btn" id="theme" title="Light / dark theme" aria-label="Change theme">Theme</button>
     <span id="saved" aria-live="polite">—</span>
   </div>
@@ -247,6 +279,27 @@ input[type=search]{width:140px}
   </div>
 </aside>
 
+<div id="drv" hidden>
+  <div class="mbox" role="dialog" aria-label="Google Drive backup">
+    <header><h3>Google Drive backup</h3><button class="btn" id="d-close" title="Close (Esc)" aria-label="Close">✕</button></header>
+    <p class="dnote" id="d-info"></p>
+    <label class="dlab">OAuth client ID
+      <input type="text" id="d-cid" placeholder="1234567890-abc….apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="dnote">Create one in the Google Cloud Console (Web application, Google Drive API enabled). See the README for the steps.</div>
+    <div class="drow">
+      <button class="btn pri" id="d-connect">Connect</button>
+      <button class="btn" id="d-disconnect">Disconnect</button>
+    </div>
+    <label class="chkl dauto"><input type="checkbox" id="d-auto"> Back up automatically after every change</label>
+    <div class="drow">
+      <button class="btn" id="d-now">Back up now</button>
+      <button class="btn" id="d-restore">Restore from Drive…</button>
+    </div>
+    <div id="d-status" class="dstatus" aria-live="polite"></div>
+  </div>
+</div>
+
 <div id="toast" hidden></div>
 <div id="hint">Double click: card (dates, checklist, tags, notes…) · Tab: child · Enter: sibling · Space: done · Drag a node onto another to move it · Wheel: zoom</div>
 <input type="file" id="file" accept=".json,.md,.txt,.markdown" hidden>
@@ -276,9 +329,9 @@ let data, view = { x: 0, y: 0, k: 1 };
 let selected = null, editing = null, preSnap = null, dragging = false, noteOpen = false;
 let query = '', onlyOpen = false, storageOK = true;
 let drag = null, pan = null, pinch = null, lastTap = { id: null, t: 0 };
-let raf = 0, bub = 0, saveT = 0, toastT = 0, order = [];
+let raf = 0, bub = 0, bubSig = '', bubSettled = false, saveT = 0, toastT = 0, order = [];
 const pointers = new Map();
-const els = new Map(), paths = new Map(), cur = {}, tgt = {}, baseT = {};
+const els = new Map(), paths = new Map(), cur = {}, tgt = {}, baseT = {}, paintKey = new Map();
 const byId = new Map(), parentOf = new Map(), stats = new Map(), colorOf = new Map(), numOf = new Map(), vparent = new Map();
 const hist = [], redoStack = [];
 
@@ -385,7 +438,7 @@ function setSaved(text, err) { const s = $('#saved'); s.textContent = text; s.cl
 function scheduleSave() { setSaved('Saving…'); clearTimeout(saveT); saveT = setTimeout(save, 350); }
 function save() {
   clearTimeout(saveT); saveT = 0;
-  try { localStorage.setItem(KEY, JSON.stringify(data)); storageOK = true; setSaved('Saved locally'); }
+  try { localStorage.setItem(KEY, JSON.stringify(data)); storageOK = true; setSaved('Saved locally'); driveScheduleBackup(); }
   catch (e) { storageOK = false; setSaved('⚠ Not saved: use JSON backup', true); }
 }
 
@@ -450,6 +503,8 @@ function buildNode(id) {
     '<button class="fold" tabindex="-1" aria-label="Collapse or expand"></button>' +
     '<div class="prog"><i></i></div>';
   const t = el.querySelector('.txt');
+  el._t = t; el._num = el.querySelector('.num'); el._meta = el.querySelector('.meta');      // cached references
+  el._fold = el.querySelector('.fold'); el._prog = el.querySelector('.prog i');
   t.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); finishEdit(true); t.blur(); }
     else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); t.blur(); }
@@ -469,35 +524,48 @@ function chip(parent, text, cls) {
   const c = document.createElement('span'); c.className = 'chip' + (cls ? ' ' + cls : ''); c.textContent = text; parent.append(c);
 }
 
+// Only touches the DOM for what actually changed, and remembers the measured size (`_sz`): measuring forces a
+// reflow, so layout() only re-measures nodes whose visible content changed.
 function updateNode(el, n) {
-  const root = tree().root, s = stats.get(n.id), has = n.children.length > 0, all = s.d === s.t;
-  el.style.setProperty('--c', colorOf.get(n.id));
-  el.classList.toggle('root', n.id === root.id);
+  const root = tree().root, s = stats.get(n.id), has = n.children.length > 0, all = s.d === s.t, isRoot = n.id === root.id;
+  const col = colorOf.get(n.id);
+  if (el._col !== col) { el._col = col; el.style.setProperty('--c', col); }
+  el.classList.toggle('root', isRoot);
   el.classList.toggle('has-kids', has);
   el.classList.toggle('done', all);
   el.classList.toggle('partial', s.d > 0 && !all);
   el.classList.toggle('sel', selected === n.id);
-  if (editing !== n.id) el.querySelector('.txt').textContent = n.text;
-  el.querySelector('.num').textContent = data.numbers && n.id !== root.id ? numOf.get(n.id) : '';
-  el.title = n.note || '';
-  const meta = el.querySelector('.meta'); meta.textContent = '';
-  if (n.prio) chip(meta, PRIO[n.prio], 'p' + n.prio);
+  if (editing !== n.id && el._text !== n.text) { el._text = n.text; el._t.textContent = n.text; }
+  const num = data.numbers && !isRoot ? numOf.get(n.id) : '';
+  if (el._numText !== num) { el._numText = num; el._num.textContent = num; }
+  const title = n.note || ''; if (el.title !== title) el.title = title;
+  const chips = [];                                           // [text, class]
+  if (n.prio) chips.push([PRIO[n.prio], 'p' + n.prio]);
   if (n.start || n.due) {
     const late = !!n.due && !all && n.due < todayISO();
     const txt = n.start && n.due ? fmtDate(n.start) + ' → ' + fmtDate(n.due) : n.due ? fmtDate(n.due) : 'from ' + fmtDate(n.start);
-    chip(meta, (n.rep ? '↻ ' : '') + txt, late ? 'late' : '');
-  } else if (n.rep) chip(meta, '↻');
-  if (n.items) chip(meta, '☑ ' + n.items.filter(i => i.d).length + '/' + n.items.length);
-  if (has) chip(meta, s.d + '/' + s.t);
-  if (n.tags) n.tags.forEach(t => chip(meta, '#' + t, 'tag'));
-  if (n.note) chip(meta, '≡ note');
-  meta.hidden = !meta.childNodes.length;
-  const fold = el.querySelector('.fold');
-  fold.hidden = !has; fold.textContent = n.collapsed ? '+' + n.children.length : '−';
-  el.querySelector('.prog i').style.width = has ? Math.round(100 * s.d / s.t) + '%' : '0';
+    chips.push([(n.rep ? '↻ ' : '') + txt, late ? 'late' : '']);
+  } else if (n.rep) chips.push(['↻', '']);
+  if (n.items) chips.push(['☑ ' + n.items.filter(i => i.d).length + '/' + n.items.length, '']);
+  if (has) chips.push([s.d + '/' + s.t, '']);
+  if (n.tags) n.tags.forEach(t => chips.push(['#' + t, 'tag']));
+  if (n.note) chips.push(['≡ note', '']);
+  const key = chips.map(c => c[1] + '\u0001' + c[0]).join('\u0002');
+  if (el._chips !== key) {
+    el._chips = key; el._meta.textContent = '';
+    chips.forEach(c => chip(el._meta, c[0], c[1]));
+    el._meta.hidden = !chips.length;
+  }
+  el._fold.hidden = !has;
+  const ft = n.collapsed ? '+' + n.children.length : '−';
+  if (el._foldText !== ft) { el._foldText = ft; el._fold.textContent = ft; }
+  const pw = has ? Math.round(100 * s.d / s.t) + '%' : '0';
+  if (el._pw !== pw) { el._pw = pw; el._prog.style.width = pw; }
   const q = query.trim().toLowerCase(), m = q && matches(n, q);
   el.classList.toggle('hit', !!m);
   el.classList.toggle('dim', !!q && !m);
+  const sig = n.text + '\u0003' + num + '\u0003' + key + '\u0003' + (isRoot ? 'r' : '') + (has ? 'k' : '');
+  if (el._sig !== sig) { el._sig = sig; el._sz = null; }      // size must be measured again
 }
 
 function render(opts = {}) {
@@ -508,7 +576,7 @@ function render(opts = {}) {
   const vis = new Set(order.map(n => n.id));
   for (const [id, el] of els) {
     if (vis.has(id)) continue;
-    el.remove(); els.delete(id); delete cur[id];
+    el.remove(); els.delete(id); delete cur[id]; paintKey.delete(id);
     const pa = paths.get(id); if (pa) { pa.remove(); paths.delete(id); }
   }
   for (const n of order) {
@@ -528,7 +596,11 @@ function render(opts = {}) {
 // Manual offsets (dx, dy) add up along the branch, so the subtree follows the node.
 function layout() {
   const root = tree().root, size = new Map();
-  for (const n of order) { const el = els.get(n.id); size.set(n.id, { w: el.offsetWidth, h: el.offsetHeight }); }
+  for (const n of order) {
+    const el = els.get(n.id);
+    if (!el._sz || editing === n.id) el._sz = { w: el.offsetWidth, h: el.offsetHeight };     // cached unless it changed
+    size.set(n.id, el._sz);
+  }
   const sw = new Map();
   (function f(n) {
     const ks = vkids(n); let w = size.get(n.id).w;
@@ -603,6 +675,10 @@ function relaxPass(r, list, rk, maxPass) {
 // While dragging, the other nodes are pushed away by the dragged node (soft spring)
 function bubbleLoop() {
   if (!drag || !drag.moved) { bub = 0; return; }
+  // nothing to do while the pointer is still and the nodes have settled
+  const sig = drag.px + ',' + drag.py + ',' + view.k + ',' + view.x + ',' + view.y + ',' + cur[drag.id].x + ',' + cur[drag.id].y;
+  if (sig === bubSig && bubSettled) { bub = requestAnimationFrame(bubbleLoop); return; }
+  bubSig = sig;
   const k = view.k, sr = stage.getBoundingClientRect();
   const px = (drag.px - sr.left - view.x) / k, py = (drag.py - sr.top - view.y) / k;
   const r = {}, rank = {}, ids = [], rootId = tree().root.id;
@@ -615,10 +691,13 @@ function bubbleLoop() {
     if (px >= t.x && px <= t.x + t.w && py >= t.y && py <= t.y + t.h) rank[id] = FROZEN;   // reattach target: it does not run away
   }
   relax(r, ids, rank);
+  let maxMove = 0;
   for (const id of ids) {
     if (drag.ids.has(id)) continue;
-    cur[id].x += (r[id].x - cur[id].x) * 0.3; cur[id].y += (r[id].y - cur[id].y) * 0.3;
+    const dx = (r[id].x - cur[id].x) * 0.3, dy = (r[id].y - cur[id].y) * 0.3;
+    cur[id].x += dx; cur[id].y += dy; maxMove = Math.max(maxMove, Math.abs(dx), Math.abs(dy));
   }
+  bubSettled = maxMove < 0.02;
   paint();
   bub = requestAnimationFrame(bubbleLoop);
 }
@@ -639,37 +718,55 @@ function animateToTargets(instant) {
     }
     cur[id] = { x: from[id].x, y: from[id].y, w: t.w, h: t.h };
   }
-  if (instant || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (instant || reducedMotion()) {
     for (const n of order) cur[n.id] = { ...tgt[n.id] };
     paint(); return;
   }
+  // only the nodes that really have to move are animated; the others jump straight to their target
+  const mv = [];
+  for (const n of order) {
+    const f = from[n.id], t = tgt[n.id];
+    if (Math.abs(t.x - f.x) > 0.01 || Math.abs(t.y - f.y) > 0.01) mv.push(n.id); else { cur[n.id].x = t.x; cur[n.id].y = t.y; }
+  }
   paint();
+  if (!mv.length) return;
   const t0 = performance.now();
   const step = now => {
     const k = Math.min(1, (now - t0) / ANIM), e = 1 - Math.pow(1 - k, 3);
-    for (const n of order) {
-      const f = from[n.id], t = tgt[n.id];
-      cur[n.id] = { x: f.x + (t.x - f.x) * e, y: f.y + (t.y - f.y) * e, w: t.w, h: t.h };
+    for (const id of mv) {
+      const f = from[id], t = tgt[id], c = cur[id];
+      c.x = f.x + (t.x - f.x) * e; c.y = f.y + (t.y - f.y) * e;
     }
     paint();
     if (k < 1) raf = requestAnimationFrame(step);
   };
   raf = requestAnimationFrame(step);
 }
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// Writes only what changed since the last paint: node transforms, and the links of nodes that moved or resized
 function paint() {
-  for (const n of order) { const c = cur[n.id]; els.get(n.id).style.transform = 'translate(' + c.x + 'px,' + c.y + 'px)'; }
-  drawLinks(); placeToolbar();
+  const changed = new Set();
+  for (const n of order) {
+    const c = cur[n.id], key = c.x + '|' + c.y + '|' + c.w + '|' + c.h;
+    if (paintKey.get(n.id) === key) continue;
+    paintKey.set(n.id, key); changed.add(n.id);
+    els.get(n.id).style.transform = 'translate(' + c.x + 'px,' + c.y + 'px)';
+  }
+  if (changed.size) drawLinks(changed);
+  placeToolbar();
 }
 
-function drawLinks() {
+function drawLinks(changed) {
   for (const n of order) {
     const pid = vparent.get(n.id); if (!pid) continue;
     const p = cur[pid], c = cur[n.id], pa = paths.get(n.id); if (!p || !c || !pa) continue;
+    const col = colorOf.get(n.id);
+    if (changed && !changed.has(n.id) && !changed.has(pid) && pa._col === col && pa.hasAttribute('d')) continue;
     const x1 = p.x + p.w / 2, y1 = p.y + p.h, x2 = c.x + c.w / 2, y2 = c.y;
     const dy = Math.max(28, Math.abs(y2 - y1) * 0.5);
     pa.setAttribute('d', 'M' + x1 + ' ' + y1 + 'C' + x1 + ' ' + (y1 + dy) + ' ' + x2 + ' ' + (y2 - dy) + ' ' + x2 + ' ' + y2);
-    pa.setAttribute('stroke', colorOf.get(n.id));
+    if (pa._col !== col) { pa._col = col; pa.setAttribute('stroke', col); }
   }
 }
 
@@ -681,6 +778,7 @@ function resetScene() {
   for (const el of els.values()) el.remove(); els.clear();
   for (const p of paths.values()) p.remove(); paths.clear();
   for (const k of Object.keys(cur)) delete cur[k];
+  paintKey.clear();
   selected = null; editing = null; dragging = false;
 }
 
@@ -705,26 +803,69 @@ function applyView() {
   stage.style.backgroundSize = 28 * view.k + 'px ' + 28 * view.k + 'px';
   placeToolbar(); scheduleSave();
 }
+// Pan, pinch and wheel events can arrive much faster than the screen refreshes: they are applied once per frame
+let viewRaf = 0;
+function applyViewSoon() { if (!viewRaf) viewRaf = requestAnimationFrame(() => { viewRaf = 0; applyView(); }); }
+
+const clampK = k => Math.max(0.2, Math.min(2.5, k));
 function zoomAt(cx, cy, f) {
-  const nk = Math.max(0.2, Math.min(2.5, view.k * f)), r = nk / view.k;
-  view.x = cx - (cx - view.x) * r; view.y = cy - (cy - view.y) * r; view.k = nk; applyView();
+  const nk = clampK(view.k * f), r = nk / view.k;
+  view.x = cx - (cx - view.x) * r; view.y = cy - (cy - view.y) * r; view.k = nk; applyViewSoon();
 }
-function fit() {
-  if (!order.length) return;
+
+// Wheel zoom glides towards its target instead of jumping (the target accumulates while the wheel keeps turning)
+let wheelZoom = null, wheelRaf = 0;
+function zoomWheel(cx, cy, f) {
+  cancelViewAnim();
+  wheelZoom = { cx, cy, k: clampK((wheelZoom ? wheelZoom.k : view.k) * f) };
+  if (!wheelRaf) wheelRaf = requestAnimationFrame(wheelStep);
+}
+function wheelStep() {
+  wheelRaf = 0; const z = wheelZoom; if (!z) return;
+  const ratio = z.k / view.k, done = reducedMotion() || Math.abs(Math.log(ratio)) < 0.005;
+  const nk = done ? z.k : view.k * Math.pow(ratio, 0.42), r = nk / view.k;
+  view.x = z.cx - (z.cx - view.x) * r; view.y = z.cy - (z.cy - view.y) * r; view.k = nk;
+  applyView();
+  if (done) wheelZoom = null; else wheelRaf = requestAnimationFrame(wheelStep);
+}
+
+// Smooth transition of the whole view (used by "Fit" and by search)
+let viewAnim = 0;
+function cancelViewAnim() { cancelAnimationFrame(viewAnim); viewAnim = 0; wheelZoom = null; }
+function animateView(to) {
+  cancelViewAnim();
+  if (reducedMotion()) { Object.assign(view, to); applyView(); return; }
+  const from = { x: view.x, y: view.y, k: view.k }, t0 = performance.now(), D = 260;
+  const step = now => {
+    const p = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - p, 3);
+    // the scale is interpolated geometrically so that zooming feels uniform
+    const k = from.k * Math.pow(to.k / from.k, e), r = k / from.k;
+    view.k = k;
+    view.x = from.x * (1 - e) + to.x * e; view.y = from.y * (1 - e) + to.y * e;
+    if (p >= 1) Object.assign(view, to);
+    applyView();
+    viewAnim = p < 1 ? requestAnimationFrame(step) : 0;
+  };
+  viewAnim = requestAnimationFrame(step);
+}
+
+function fitTarget() {
+  if (!order.length) return null;
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   for (const n of order) { const t = tgt[n.id]; x0 = Math.min(x0, t.x); y0 = Math.min(y0, t.y); x1 = Math.max(x1, t.x + t.w); y1 = Math.max(y1, t.y + t.h); }
   const W = innerWidth, H = innerHeight, top = $('#bar').getBoundingClientRect().bottom + 36, pad = 40;
   const bw = x1 - x0, bh = y1 - y0;
-  view.k = Math.max(0.25, Math.min(1, (W - 2 * pad) / bw, (H - top - pad) / bh));
-  view.x = (W - bw * view.k) / 2 - x0 * view.k;      // horizontally centered
-  view.y = top - y0 * view.k;                         // the root starts at the top
+  const k = Math.max(0.25, Math.min(1, (W - 2 * pad) / bw, (H - top - pad) / bh));
+  return { k, x: (W - bw * k) / 2 - x0 * k,      // horizontally centered
+    y: top - y0 * k };                            // the root starts at the top
 }
+function fit() { const t = fitTarget(); if (t) Object.assign(view, t); }
 function centerOn(id) {
   const c = tgt[id]; if (!c) return;
-  view.x = innerWidth / 2 - (c.x + c.w / 2) * view.k; view.y = innerHeight / 2 - (c.y + c.h / 2) * view.k; applyView();
+  animateView({ k: view.k, x: innerWidth / 2 - (c.x + c.w / 2) * view.k, y: innerHeight / 2 - (c.y + c.h / 2) * view.k });
 }
 function openTree() {
-  finishEdit(false); resetScene();
+  finishEdit(false); resetScene(); cancelViewAnim();
   const t = tree(), need = !t.view;
   if (need) t.view = { x: 0, y: 0, k: 1 };
   view = t.view;
@@ -797,6 +938,7 @@ function finishEdit(saveIt) {
   const id = editing; editing = null;
   const el = els.get(id), n = byId.get(id);
   if (!el || !n) return;
+  el._text = null; el._sz = null;                     // force text and size to be refreshed (also after Esc)
   const t = el.querySelector('.txt');
   const val = t.textContent.replace(/\s+/g, ' ').trim();
   t.contentEditable = 'false'; el.classList.remove('editing');
@@ -1091,6 +1233,7 @@ function abortGestures() {
 
 stage.addEventListener('pointerdown', e => {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
+  cancelViewAnim();                                              // touching the canvas stops any view animation
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2) {
     abortGestures();
@@ -1130,7 +1273,7 @@ window.addEventListener('pointermove', e => {
       drag.moved = true; dragging = true; cancelAnimationFrame(raf); tb.hidden = true;
       for (const i of drag.ids) { const el = els.get(i); if (el) el.classList.add('drag'); }
     }
-    drag.px = e.clientX; drag.py = e.clientY;
+    drag.px = e.clientX; drag.py = e.clientY; bubSettled = false;
     let minY = Infinity;                                   // ceiling: the dragged branch does not go above CEIL
     for (const i of drag.ids) if (drag.start[i]) minY = Math.min(minY, drag.start[i].y);
     let dxw = dx / view.k, dyw = dy / view.k;
@@ -1163,7 +1306,7 @@ window.addEventListener('pointermove', e => {
   if (pan && !pinch) {
     const dx = e.clientX - pan.sx, dy = e.clientY - pan.sy;
     if (!pan.moved && Math.hypot(dx, dy) < 4) return;
-    pan.moved = true; view.x = pan.vx + dx; view.y = pan.vy + dy; applyView();
+    pan.moved = true; view.x = pan.vx + dx; view.y = pan.vy + dy; applyViewSoon();
   }
 });
 
@@ -1194,7 +1337,7 @@ window.addEventListener('pointercancel', e => endPointer(e, true));
 stage.addEventListener('wheel', e => {
   e.preventDefault();
   const f = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 16 : 1) * (e.ctrlKey ? 0.012 : 0.0016));
-  zoomAt(e.clientX, e.clientY, f);
+  zoomWheel(e.clientX, e.clientY, f);
 }, { passive: false });
 
 world.addEventListener('click', e => {
@@ -1209,6 +1352,7 @@ world.addEventListener('click', e => {
    ===================================================================== */
 document.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey, t = e.target;
+  if (!drv.hidden) { if (e.key === 'Escape') closeDrive(); return; }   // the Drive dialog is open: keys do not reach the tree
   if (cardId && card.contains(t)) return;     // inside the card the keys belong to its fields (Esc closes it, see bindCard)
   const typing = t.matches && t.matches('input,textarea,select,[contenteditable="true"]');
   const k = e.key.toLowerCase();
@@ -1333,6 +1477,254 @@ $('#file').addEventListener('change', async e => {
 });
 
 /* =====================================================================
+   GOOGLE DRIVE BACKUP (optional)
+   The only part of the app that talks to the network, and only after the user connects it.
+   Sign-in: Google Identity Services token flow. Scope drive.file: the app only sees files it created itself.
+   On Drive: folder "ToDoTree" / file "todotree-backup.json", updated in place (Drive keeps the revision history).
+   The access token lives in memory only; the OAuth client ID and a few ids are kept in localStorage.
+   ===================================================================== */
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_KEY = 'trees:drive', DRIVE_FOLDER = 'ToDoTree', DRIVE_FILE = 'todotree-backup.json', GAPI = 'https://www.googleapis.com';
+const DRIVE_DELAY = typeof window.__DRIVE_DELAY_MS === 'number' ? window.__DRIVE_DELAY_MS : 8000;   // wait before an automatic backup
+const drv = $('#drv');
+
+function loadDriveCfg() {
+  const d = { clientId: '', connected: false, auto: false, folderId: '', fileId: '', last: '', hash: '' };
+  try { Object.assign(d, JSON.parse(localStorage.getItem(DRIVE_KEY) || '{}')); } catch (e) { /* ignore */ }
+  d.clientId = typeof d.clientId === 'string' ? d.clientId.trim() : '';
+  d.connected = !!d.connected && !!d.clientId; d.auto = !!d.auto;
+  return d;
+}
+const drive = { cfg: loadDriveCfg(), token: null, exp: 0, tokenP: null, client: null, clientFor: '', busy: false, again: false,
+  timer: 0, state: '', msg: '', lastAuthTry: 0, ok: null, fail: null };
+function saveDriveCfg() { try { localStorage.setItem(DRIVE_KEY, JSON.stringify(drive.cfg)); } catch (e) { /* ignore */ } }
+const driveSupported = () => location.protocol === 'https:' || location.protocol === 'http:';   // Google sign-in does not work from file://
+const validClientId = s => /^[\w.-]+\.apps\.googleusercontent\.com$/.test(s);
+const hashStr = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0) + ':' + s.length; };
+const tokenValid = () => !!drive.token && Date.now() < drive.exp - 60000;
+const authError = msg => Object.assign(new Error(msg || 'Sign in to Google again to continue'), { auth: true });
+const fmtWhen = iso => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+// What gets backed up (the same data as the JSON export, without the zoom/pan of each tree)
+const backupTrees = () => data.trees.map(t => ({ id: t.id, root: t.root }));
+const backupHash = () => hashStr(JSON.stringify({ c: data.current, t: backupTrees() }));
+const backupText = () => JSON.stringify({ app: 'trees', v: 1, exported: new Date().toISOString(), current: data.current, theme: data.theme, numbers: data.numbers, trees: backupTrees() });
+
+function setDrive(msg, kind) { drive.msg = msg || ''; drive.state = kind || ''; renderDrive(); }
+
+function renderDrive() {
+  const c = drive.cfg, b = $('#drive'), supported = driveSupported();
+  let st = '';
+  if (c.connected) st = drive.busy ? 'busy' : drive.state === 'err' ? 'err' : (drive.state === 'auth' || (c.auto && !tokenValid() && c.hash !== backupHash())) ? 'auth' : c.last ? 'ok' : '';
+  b.className = 'btn' + (st ? ' ' + st : '');
+  b.title = st === 'ok' ? 'Backed up to Google Drive at ' + fmtWhen(c.last) : st === 'auth' ? 'Google Drive: sign in again to keep backing up'
+    : st === 'err' ? 'Google Drive backup failed: ' + drive.msg : st === 'busy' ? 'Talking to Google Drive…' : 'Back up to Google Drive';
+  if (drv.hidden) return;
+  $('#d-info').textContent = supported
+    ? 'Your trees are saved to a "' + DRIVE_FOLDER + '" folder in your own Google Drive. The app can only see the files it created itself.'
+    : 'Google sign-in does not work from a file:// page. Start the local server (npm start) and open http://localhost:5173, or host the page over https, then come back here.';
+  const cid = $('#d-cid'); if (document.activeElement !== cid) cid.value = c.clientId;
+  const idle = supported && !drive.busy;
+  $('#d-connect').textContent = c.connected ? 'Reconnect' : 'Connect';
+  $('#d-connect').disabled = !idle;
+  $('#d-disconnect').disabled = !c.connected;
+  $('#d-auto').checked = c.auto; $('#d-auto').disabled = !c.connected;
+  $('#d-now').disabled = !(idle && c.connected); $('#d-restore').disabled = !(idle && c.connected);
+  const s = $('#d-status');
+  s.className = 'dstatus' + (drive.state === 'err' || drive.state === 'auth' ? ' err' : drive.state === 'ok' ? ' ok' : '');
+  s.textContent = drive.msg || (c.connected ? (c.last ? 'Connected. Last backup: ' + fmtWhen(c.last) : 'Connected. No backup yet.') : '');
+}
+
+let gisPromise = null;
+function loadGis() {
+  if (window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
+  if (!gisPromise) gisPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => { gisPromise = null; s.remove(); reject(new Error('Could not load Google sign-in (are you offline?)')); };
+    document.head.append(s);
+  });
+  return gisPromise;
+}
+
+// An access token lasts about an hour. Asking for a new one may open a small Google window, which browsers only
+// allow right after a click: that is why automatic backups never ask by themselves (see the pointerdown handler).
+function getToken(allowPopup) {
+  if (tokenValid()) return Promise.resolve(drive.token);
+  if (!allowPopup) return Promise.reject(authError());
+  if (drive.tokenP) return drive.tokenP;
+  drive.tokenP = loadGis().then(() => new Promise((resolve, reject) => {
+    const cid = drive.cfg.clientId;
+    if (!drive.client || drive.clientFor !== cid) {
+      drive.client = google.accounts.oauth2.initTokenClient({
+        client_id: cid, scope: DRIVE_SCOPE,
+        callback: r => (r.error ? drive.fail(authError(r.error_description || r.error)) : drive.ok(r)),
+        error_callback: e => drive.fail(authError(e && e.type === 'popup_closed' ? 'The Google sign-in window was closed'
+          : e && e.type === 'popup_failed_to_open' ? 'The browser blocked the Google sign-in window' : 'Google sign-in failed'))
+      });
+      drive.clientFor = cid;
+    }
+    drive.ok = r => { drive.token = r.access_token; drive.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000; resolve(drive.token); };
+    drive.fail = reject;
+    drive.client.requestAccessToken({ prompt: drive.cfg.connected ? '' : 'consent' });
+  })).finally(() => { drive.tokenP = null; });
+  return drive.tokenP;
+}
+
+async function driveFetch(path, opts = {}) {
+  const res = await fetch(GAPI + path, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + drive.token } });
+  if (res.status === 401) { drive.token = null; throw authError(); }
+  if (!res.ok) { const e = new Error('Google Drive error ' + res.status); e.status = res.status; throw e; }
+  return res;
+}
+async function findOne(query) {
+  const r = await (await driveFetch('/drive/v3/files?pageSize=1&fields=files(id,name,modifiedTime)&q=' + encodeURIComponent(query))).json();
+  return (r.files && r.files[0]) || null;
+}
+async function ensureFolder() {
+  if (drive.cfg.folderId) return drive.cfg.folderId;
+  let f = await findOne("name='" + DRIVE_FOLDER + "' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+  if (!f) f = await (await driveFetch('/drive/v3/files?fields=id', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: DRIVE_FOLDER, mimeType: 'application/vnd.google-apps.folder' }) })).json();
+  drive.cfg.folderId = f.id; saveDriveCfg(); return f.id;
+}
+async function findBackupFile(folderId) {
+  if (drive.cfg.fileId) return { id: drive.cfg.fileId };
+  const f = await findOne("name='" + DRIVE_FILE + "' and '" + folderId + "' in parents and trashed=false");
+  if (f) { drive.cfg.fileId = f.id; saveDriveCfg(); }
+  return f;
+}
+async function uploadBackup(text) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const folderId = await ensureFolder(), f = await findBackupFile(folderId);
+      if (f) {                                                    // update the same file in place
+        const r = await (await driveFetch('/upload/drive/v3/files/' + f.id + '?uploadType=media&fields=id,trashed',
+          { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: text })).json();
+        if (r.trashed) { drive.cfg.fileId = ''; drive.cfg.folderId = ''; continue; }      // it was moved to the trash: start over
+      } else {
+        const b = 'tdt' + uid(), meta = JSON.stringify({ name: DRIVE_FILE, parents: [folderId], mimeType: 'application/json' });
+        const body = '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta + '\r\n--' + b +
+          '\r\nContent-Type: application/json\r\n\r\n' + text + '\r\n--' + b + '--';
+        const r = await (await driveFetch('/upload/drive/v3/files?uploadType=multipart&fields=id',
+          { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body })).json();
+        drive.cfg.fileId = r.id; saveDriveCfg();
+      }
+      return;
+    } catch (e) {
+      if (e.status === 404 && attempt === 0) { drive.cfg.folderId = ''; drive.cfg.fileId = ''; continue; }   // deleted on Drive: start over
+      throw e;
+    }
+  }
+}
+
+// mode: 'auto' (never opens a window), 'gesture' (right after a click) or 'manual' (the user asked for it)
+async function driveBackup(mode) {
+  const c = drive.cfg; if (!c.connected) return;
+  if (drive.busy) { drive.again = true; return; }
+  const h = backupHash();
+  if (mode !== 'manual' && h === c.hash) return;                  // nothing changed since the last backup
+  drive.busy = true; setDrive('Backing up…', '');
+  let retry = false;
+  try {
+    await getToken(mode !== 'auto');
+    await uploadBackup(backupText());
+    c.last = new Date().toISOString(); c.hash = h; saveDriveCfg();
+    setDrive('Backed up ' + fmtWhen(c.last), 'ok');
+    if (mode === 'manual') toast('Backed up to Google Drive');
+  } catch (e) {
+    if (e.auth) setDrive(e.message, 'auth');
+    else { setDrive('Backup failed: ' + (e instanceof TypeError ? 'no connection' : e.message), 'err'); retry = true; }
+  } finally {
+    drive.busy = false; renderDrive();
+    if (drive.again) { drive.again = false; driveScheduleBackup(); }
+    else if (retry && c.auto) { clearTimeout(drive.timer); drive.timer = setTimeout(() => driveBackup('auto'), 60000); }
+  }
+}
+// Called after every local save: backs up a few seconds after the last change
+function driveScheduleBackup() {
+  const c = drive.cfg; if (!c.connected || !c.auto) return;
+  clearTimeout(drive.timer); drive.timer = setTimeout(() => driveBackup('auto'), DRIVE_DELAY);
+  renderDrive();
+}
+
+async function driveRestore() {
+  if (drive.busy) return;
+  drive.busy = true; setDrive('Reading the backup…', '');
+  try {
+    await getToken(true);
+    const folderId = await ensureFolder(), f = await findBackupFile(folderId);
+    if (!f) { setDrive('There is no backup on Google Drive yet', 'err'); return; }
+    const text = await (await driveFetch('/drive/v3/files/' + f.id + '?alt=media')).text();
+    let parsed; try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+    if (!parsed || !Array.isArray(parsed.trees) || !parsed.trees.length) throw new Error('The backup on Drive is not valid');
+    const cand = normalize(parsed);
+    if (!confirm('Replace all your trees with the backup stored on Google Drive' + (parsed.exported ? ' (' + fmtWhen(parsed.exported) + ')' : '') + '?\nYou can undo this with Ctrl+Z.')) { setDrive('', ''); return; }
+    finishEdit(true); commit();
+    data.trees = cand.trees; data.current = cand.current;
+    openTree(); scheduleSave();
+    drive.cfg.hash = backupHash(); saveDriveCfg();
+    setDrive('Restored from Google Drive', 'ok');
+    closeDrive(); toast('Restored from Google Drive', 'Undo', undo);
+  } catch (e) {
+    setDrive(e.auth ? e.message : 'Restore failed: ' + (e instanceof TypeError ? 'no connection' : e.message), e.auth ? 'auth' : 'err');
+  } finally { drive.busy = false; renderDrive(); }
+}
+
+async function driveConnect() {
+  const id = $('#d-cid').value.trim();
+  if (!validClientId(id)) { setDrive('Enter a valid OAuth client ID (it ends with .apps.googleusercontent.com)', 'err'); return; }
+  if (id !== drive.cfg.clientId) { drive.cfg.clientId = id; drive.cfg.folderId = ''; drive.cfg.fileId = ''; drive.token = null; }
+  saveDriveCfg();
+  drive.busy = true; setDrive('Waiting for Google…', '');
+  try {
+    await getToken(true);
+    await ensureFolder();
+    drive.cfg.connected = true; saveDriveCfg();
+    drive.busy = false; setDrive('Connected', 'ok');
+    driveBackup('manual');
+  } catch (e) {
+    drive.busy = false; setDrive(e.auth ? e.message : 'Could not connect: ' + (e instanceof TypeError ? 'no connection' : e.message), 'err');
+  }
+}
+function driveDisconnect() {
+  const tk = drive.token;
+  if (tk && window.google && google.accounts && google.accounts.oauth2) { try { google.accounts.oauth2.revoke(tk, () => {}); } catch (e) { /* ignore */ } }
+  clearTimeout(drive.timer);
+  Object.assign(drive.cfg, { connected: false, auto: false, folderId: '', fileId: '', last: '', hash: '' });
+  drive.token = null; drive.exp = 0; drive.client = null; saveDriveCfg();
+  setDrive('Disconnected. Your backup stays on Google Drive.', '');
+}
+
+function openDrive() { finishEdit(true); drv.hidden = false; renderDrive(); $('#d-cid').focus(); }
+function closeDrive() { drv.hidden = true; renderDrive(); }
+
+function bindDrive() {
+  $('#drive').onclick = openDrive;
+  $('#d-close').onclick = closeDrive;
+  drv.addEventListener('pointerdown', e => { if (e.target === drv) closeDrive(); });
+  drv.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closeDrive(); } });
+  $('#d-connect').onclick = driveConnect;
+  $('#d-disconnect').onclick = driveDisconnect;
+  $('#d-now').onclick = () => driveBackup('manual');
+  $('#d-restore').onclick = driveRestore;
+  $('#d-auto').onchange = e => { drive.cfg.auto = e.target.checked; saveDriveCfg(); if (drive.cfg.auto) driveScheduleBackup(); renderDrive(); };
+  $('#d-cid').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); driveConnect(); } });
+  window.addEventListener('online', () => driveScheduleBackup());
+  // When the token has expired and there is something to save, ask for a new one right after the user's next click
+  // (a browser only allows the small Google window to open in response to a click)
+  document.addEventListener('pointerdown', () => {
+    const c = drive.cfg;
+    if (!c.connected || !c.auto || drive.busy || tokenValid() || drive.tokenP || !drv.hidden) return;
+    if (drive.state !== 'auth' && c.hash === backupHash()) return;
+    if (Date.now() - drive.lastAuthTry < 60000) return;
+    drive.lastAuthTry = Date.now(); driveBackup('gesture');
+  }, true);
+  renderDrive();
+  if (drive.cfg.connected && drive.cfg.auto) driveScheduleBackup();
+}
+
+/* =====================================================================
    UI: toast, bar, theme
    ===================================================================== */
 function toast(msg, label, fn) {
@@ -1343,7 +1735,7 @@ function toast(msg, label, fn) {
 }
 
 function bindUI() {
-  buildSwatches(); bindCard();
+  buildSwatches(); bindCard(); bindDrive();
   $('#treeSel').onchange = e => { data.current = e.target.value; openTree(); scheduleSave(); };
   $('#newTree').onclick = newTree; $('#delTree').onclick = delTree;
   $('#search').addEventListener('input', e => { query = e.target.value; render(); });
@@ -1356,7 +1748,7 @@ function bindUI() {
   $('#numbers').onchange = e => { data.numbers = e.target.checked; render(); scheduleSave(); };
   $('#undo').onclick = undo; $('#redo').onclick = redo;
   $('#reorder').onclick = () => mutate(() => { (function z(n) { delete n.dx; delete n.dy; n.children.forEach(z); })(tree().root); });
-  $('#fit').onclick = () => { fit(); applyView(); };
+  $('#fit').onclick = () => { const t = fitTarget(); if (t) animateView(t); };
   $('#theme').onclick = () => {
     data.theme = data.theme === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = data.theme; scheduleSave();

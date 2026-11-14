@@ -6,7 +6,8 @@ sharing or syncing.
 
 ## Constraints
 - **A single `index.html` file** with HTML + CSS + JS: no build, no framework, no CDN.
-- **Offline and local**: no network calls. Data lives in `localStorage` (key `trees:v1`; the legacy key `alberi:v1`
+- **Offline and local**: no network calls, with one exception: the optional Google Drive backup, which only talks to
+  Google after the user connects it. Data lives in `localStorage` (key `trees:v1`; the legacy key `alberi:v1`
   written by earlier versions is still read and migrated).
 - **Automatic** saving (350 ms debounce) plus JSON / Markdown backups so data is never lost.
 - English UI. Node text is always written with `textContent` (never `innerHTML`) for safety.
@@ -58,6 +59,28 @@ Repeat: a leaf node with `rep` marked "done" does not stay done; it moves its du
 `applyDone`) and resets its checklist. Search looks at title, tags and checklist items (`matches`). Markdown:
 `@due ^start !priority #tag`, note in `> …` lines, checklist as nested items (`toMd`/`parseMd`).
 
+## Performance notes
+`updateNode()` only touches the DOM for what changed and caches the measured size (`el._sz`, invalidated through the
+content signature `el._sig`); `layout()` re-measures only invalidated nodes, which avoids a forced reflow per node
+(`render()` of 600 nodes: ~82 ms → ~7 ms at CPU x4). `paint()` writes only the transforms/links that changed
+(`paintKey`), `animateToTargets()` only animates nodes that really move, and `bubbleLoop()` sleeps while the pointer is
+still and the nodes have settled. Pan/pinch are applied once per frame (`applyViewSoon`); wheel zoom glides towards an
+accumulated target (`zoomWheel`); *Fit* and search animate the view (`animateView`). All animations respect
+`prefers-reduced-motion`. Do not put `will-change: transform` on nodes: it rasterizes them at one scale and makes
+them blurry when zooming.
+
+## Google Drive backup
+Section "GOOGLE DRIVE BACKUP" of the script. Sign-in uses Google Identity Services (token flow, `drive.file` scope,
+script loaded on demand from accounts.google.com); the API is called with `fetch`. Config (client ID, folder/file ids,
+last backup time, hash of the last backed-up data) is in `localStorage` key `trees:drive`; the access token is in
+memory only. `save()` calls `driveScheduleBackup()`, which debounces (`DRIVE_DELAY`, overridable in tests with
+`window.__DRIVE_DELAY_MS`) and uploads only if the hash of the trees changed (view changes do not count). Automatic
+backups never open a Google window (browsers need a user gesture): when the token has expired the next `pointerdown`
+renews it (`driveBackup('gesture')`). The backup is `{app, v, exported, current, theme, numbers, trees}` without views.
+Restore goes through `normalize()` and `commit()`, so it can be undone. `npm start` (`tools/serve.js`) serves
+`index.html` on http://localhost:5173 because Google sign-in does not work from `file://`.
+`tests/drive.js` replaces Google with Playwright routes (a stub of the sign-in script and an in-memory Drive).
+
 ## Interactions
 Double click/tap: card · Tab: child · Enter: sibling · Space: done · Delete: delete · arrows: navigate ·
 Ctrl+Z / Ctrl+Y: undo/redo · Ctrl+F: search · drag onto a node = reattach · drag into empty space = free position
@@ -72,6 +95,7 @@ In the tests, clicks must be scaled by the current zoom (`view.k`).
 `tests/fuzz.js` (also part of `npm test`; `FUZZ_SEEDS=1,2 FUZZ_STEPS=60 npm run test:fuzz`) performs random actions
 with the real mouse and keyboard and, after each one, checks: no overlaps, no node above the ceiling, valid model,
 DOM = visible nodes, undo/redo restoring the state. On failure it prints the seed and the actions to reproduce it.
+`tests/drive.js` tests the Drive backup against fakes; `tests/bench.js` (`npm run bench`) measures frame times.
 CI: `.github/workflows/test.yml` runs `npm test` on every push to `main` and on pull requests.
 
 ## Ideas not done yet

@@ -191,6 +191,21 @@ window.google = { accounts: { oauth2: {
   log(!!fd.files.find(f => f.name === 'todotree-backup.json') && fd.files.filter(f => f.folder).length === 1, 'folder and file deleted on Drive are recreated');
   await page.click('#d-close');
 
+  // ---------- 7b) several trees are backed up and restored together ----------
+  await page.click('#newTree'); await page.waitForTimeout(300);
+  await page.keyboard.type('Second tree'); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
+  await page.click('#drive'); await page.click('#d-now'); await waitStatus(/Backed up/);
+  bj = backupJson();
+  log(bj.trees.length === 2 && bj.trees.some(t => t.root.text === 'Second tree'), 'the backup contains every tree on the page');
+  await page.click('#d-close');
+  await page.evaluate(() => { const A = window.__trees; A.data.trees.pop(); A.data.current = A.data.trees[0].id; A.render(); });   // lose the second tree locally
+  await page.click('#drive'); await page.click('#d-restore');
+  await page.waitForFunction(() => document.querySelector('#drv').hidden, null, { timeout: 4000 });
+  await page.waitForTimeout(500);
+  const shownTexts = await page.$$eval('.node', ns => ns.map(n => n.querySelector('.txt').textContent));
+  log(await page.evaluate(() => window.__trees.data.trees.length) === 2 && shownTexts.includes('Second tree') && shownTexts.includes('Process: product development'),
+    'restore brings back every tree and shows them side by side');
+
   // ---------- 8) persistence and disconnect ----------
   await page.waitForTimeout(500);
   await page.reload(); await page.waitForTimeout(500);

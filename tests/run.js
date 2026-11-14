@@ -63,7 +63,7 @@ const countOverlaps = ns => {
 
   // checkbox
   const asm = ns.find(n => n.t === 'Assembly');
-  const kk = await page.evaluate(() => window.__trees.data.trees[0].view.k);
+  const kk = await page.evaluate(() => window.__trees.data.view.k);
   await page.mouse.click(asm.x + 24 * kk, asm.y + 21 * kk);
   await page.waitForTimeout(300);
   const doneAsm = await page.evaluate(() => { const r = window.__trees.data.trees[0].root; return r.children[2].children[1].done; });
@@ -177,10 +177,10 @@ const countOverlaps = ns => {
   await page.waitForTimeout(200);
 
   // wheel zoom and pan
-  const k0 = await page.evaluate(() => window.__trees.data.trees[0].view.k);
+  const k0 = await page.evaluate(() => window.__trees.data.view.k);
   await page.mouse.move(700, 400); await page.mouse.wheel(0, -300);
   await page.waitForTimeout(150);
-  const k1 = await page.evaluate(() => window.__trees.data.trees[0].view.k);
+  const k1 = await page.evaluate(() => window.__trees.data.view.k);
   log(k1 > k0, 'wheel zoom (' + k0.toFixed(2) + '→' + k1.toFixed(2) + ')');
   await page.click('#fit');
 
@@ -201,20 +201,62 @@ const countOverlaps = ns => {
   ns = await nodes();
   log(ns.length >= 16 && ns.some(n => n.t === 'Engineering'), 'data saved under the legacy key is migrated');
 
-  // new tree, dark theme
+  // new tree: it appears next to the existing one, on the same page
   await page.click('#newTree');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(400);
   await page.keyboard.type('Order process');
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(400);
   const opts = await page.$$eval('#treeSel option', o => o.map(x => x.textContent));
   log(opts.length === 2 && opts.includes('Order process'), 'new tree created: ' + opts.join(' | '));
   await page.click('#theme');
-  await page.selectOption('#treeSel', { index: 0 });
-  await page.waitForTimeout(400);
+  await page.click('#fit'); await page.waitForTimeout(600);
   await page.screenshot({ path: nodePath.join(os.tmpdir(), 'todotree-3-dark.png') });
 
-  // Markdown import
+  // several trees on the same page
+  ns = await nodes();
+  const orderRoot = ns.find(n => n.t === 'Order process'), procRoot = ns.find(n => n.t.startsWith('Process'));
+  log(!!orderRoot && !!procRoot && ns.length === 18, 'both trees are on the same page (nodes=' + ns.length + ')');
+  log(await page.isChecked('#allTrees'), '"All trees" is on by default');
+  log(orderRoot.x > procRoot.x + procRoot.w && countOverlaps(ns) === 0, 'trees are side by side and do not overlap');
+
+  // drag a node from one tree into the other tree
+  const leafT = ns.find(n => n.t === 'Schema review');
+  await page.mouse.move(leafT.x + leafT.w / 2 + 8, leafT.y + leafT.h / 2);
+  await page.mouse.down();
+  await page.mouse.move(orderRoot.x + orderRoot.w / 2, orderRoot.y + orderRoot.h / 2, { steps: 15 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  const kidsOfOrder = () => page.evaluate(() => { const t = window.__trees.data.trees.find(x => x.root.text === 'Order process'); return t.root.children.map(c => c.text); });
+  log((await kidsOfOrder()).includes('Schema review'), 'a node can be dragged from one tree into another');
+  log(countOverlaps(await nodes()) === 0, 'no overlaps after moving a node between trees');
+  await page.keyboard.press('Control+z'); await page.waitForTimeout(500);
+  log(!(await kidsOfOrder()).includes('Schema review'), 'undo moves it back to the first tree');
+
+  // dragging a root moves its whole tree
+  ns = await nodes();
+  const pr0 = ns.find(n => n.t.startsWith('Process')), rq0 = ns.find(n => n.t === 'Requirements');
+  await page.mouse.move(pr0.x + pr0.w / 2 + 8, pr0.y + pr0.h / 2);
+  await page.mouse.down();
+  await page.mouse.move(pr0.x + pr0.w / 2 + 8, pr0.y + pr0.h / 2 + 140, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  ns = await nodes();
+  const pr1 = ns.find(n => n.t.startsWith('Process')), rq1 = ns.find(n => n.t === 'Requirements');
+  log(pr1.y - pr0.y > 60 && Math.abs((rq1.y - rq0.y) - (pr1.y - pr0.y)) < 2 && countOverlaps(ns) === 0, 'dragging a root moves its whole tree (dy=' + Math.round(pr1.y - pr0.y) + ')');
+  await page.keyboard.press('Control+z'); await page.waitForTimeout(500);
+
+  // "All trees" off: one tree at a time, chosen from the list
+  await page.uncheck('#allTrees'); await page.waitForTimeout(600);
+  await page.selectOption('#treeSel', { index: 0 }); await page.waitForTimeout(600);
+  ns = await nodes();
+  log(ns.some(n => n.t === 'Engineering') && !ns.some(n => n.t === 'Order process'), 'with "All trees" off only the current tree is shown (nodes=' + ns.length + ')');
+  await page.selectOption('#treeSel', { index: 1 }); await page.waitForTimeout(600);
+  ns = await nodes();
+  log(ns.length === 1 && ns[0].t === 'Order process', 'the list switches to the other tree');
+  await page.selectOption('#treeSel', { index: 0 }); await page.waitForTimeout(400);
+
+  // Markdown import (one tree at a time)
   const impPath = nodePath.join(os.tmpdir(), 'todotree-imp.md');
   fs.writeFileSync(impPath, '- Returns handling\n  - Receive request\n  - [x] Verify\n  - Refund\n    - [ ] Approval\n');
   await page.setInputFiles('#file', impPath);
@@ -273,7 +315,7 @@ const countOverlaps = ns => {
   await page.waitForTimeout(250);
   await page.selectOption('#c-rep', 'w');
   await page.keyboard.press('Escape'); await page.waitForTimeout(250);
-  const k2 = await page.evaluate(() => { const A = window.__trees; return A.data.trees.find(x => x.id === A.data.current).view.k; });
+  const k2 = await page.evaluate(() => { const A = window.__trees; return A.data.view.k; });
   b = await box('Write offer');
   await page.mouse.click(b.x + 24 * k2, b.y + 21 * k2);
   await page.waitForTimeout(400);
@@ -292,6 +334,24 @@ const countOverlaps = ns => {
   // exported Markdown contains the new fields
   const md = await page.evaluate(() => { const A = window.__trees; return A.toMd ? A.toMd(A.data.trees.find(x => x.id === A.data.current).root) : null; });
   if (md) log(md.includes('@' + addDaysISO(due2, 7)) && /#urgent/.test(md) && /> Line one/.test(md), 'Markdown export includes dates, tags and note');
+
+  // the choice "one tree / all trees" is remembered; with all trees on, every tree is on the page again
+  log(!(await page.isChecked('#allTrees')), '"All trees" setting is remembered after a reload');
+  await page.check('#allTrees'); await page.waitForTimeout(700);
+  ns = await nodes();
+  log(['Engineering', 'Order process', 'Project X', 'Returns handling'].every(t => ns.some(n => n.t === t)), 'all trees are back on the page (nodes=' + ns.length + ')');
+  log(countOverlaps(ns) === 0, 'no overlaps with four trees on the page');
+  log(await page.evaluate(() => document.activeElement.tagName) === 'BODY', 'after using the checkbox the keyboard goes back to the tree (Ctrl+Z, arrows)');
+
+  // delete one tree: the others stay; undo brings it back
+  b = await box('Order process');
+  await page.mouse.click(b.x + b.w * 0.62, b.y + b.h * 0.3); await page.waitForTimeout(200);
+  page.once('dialog', d => d.accept());
+  await page.click('#delTree'); await page.waitForTimeout(600);
+  ns = await nodes();
+  log(!ns.some(n => n.t === 'Order process') && ns.some(n => n.t === 'Engineering') && ns.some(n => n.t === 'Project X'), 'deleting a tree removes only that tree');
+  await page.keyboard.press('Control+z'); await page.waitForTimeout(600);
+  log((await nodes()).some(n => n.t === 'Order process'), 'undo brings the deleted tree back');
 
   log(errors.length === 0, 'no console errors' + (errors.length ? ': ' + errors.join(' ; ') : ''));
   await browser.close();

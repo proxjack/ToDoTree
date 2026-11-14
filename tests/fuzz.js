@@ -9,7 +9,11 @@ const STEPS = Number(process.env.FUZZ_STEPS || 40);
 const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
 // Readable outlines of two states, to see what differs
-const outline = json => { const o = []; (function w(n, d) { o.push('›'.repeat(d) + n.text + (n.collapsed ? ' [+]' : '') + (n.dx || n.dy ? ' (manual)' : '')); n.children.forEach(c => w(c, d + 1)); })(JSON.parse(json), 0); return o; };
+const outline = json => {                       // json = array of { id, root } (all the trees)
+  const o = [];
+  for (const t of JSON.parse(json)) (function w(n, d) { o.push('›'.repeat(d) + n.text + (n.collapsed ? ' [+]' : '') + (n.dx || n.dy ? ' (manual)' : '')); n.children.forEach(c => w(c, d + 1)); })(t.root, 0);
+  return o;
+};
 const diff = (a, b) => {
   const A = outline(a), B = outline(b);
   return '\n      expected:  ' + A.join(' | ').replace(/\s+/g, ' ') + '\n      got:       ' + B.join(' | ').replace(/\s+/g, ' ');
@@ -17,20 +21,22 @@ const diff = (a, b) => {
 
 // Reads the model and the DOM from the page in one go
 const snapshot = page => page.evaluate(() => {
-  const A = window.__trees, d = A.data, tr = d.trees.find(t => t.id === d.current) || d.trees[0];
+  const A = window.__trees, d = A.data;
+  const shown = d.all ? d.trees : [d.trees.find(t => t.id === d.current) || d.trees[0]];   // trees on the page
   const ids = new Set(); let dup = 0, bad = 0, total = 0, visible = 0;
-  (function w(n, hidden) {
-    total++; if (!hidden) visible++;
+  for (const tr of d.trees) (function w(n, hidden) {
+    total++; if (!hidden && shown.includes(tr)) visible++;
     if (ids.has(n.id)) dup++; ids.add(n.id);
     if (typeof n.text !== 'string' || !Array.isArray(n.children)) bad++;
     if (('dx' in n && !Number.isFinite(n.dx)) || ('dy' in n && !Number.isFinite(n.dy))) bad++;
     n.children.forEach(c => w(c, hidden || n.collapsed));
   })(tr.root, false);
+  if (!d.trees.some(t => t.id === d.current)) bad++;                                       // the current tree must exist
   const nodes = [...document.querySelectorAll('.node')].map(el => {
     const r = el.getBoundingClientRect(), m = el.style.transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
     return { id: el.dataset.id, t: el.querySelector('.txt').textContent, x: r.x, y: r.y, w: r.width, h: r.height, wy: m ? +m[2] : 0 };
   });
-  return { json: JSON.stringify(tr.root), dup, bad, total, visible, nodes, k: tr.view ? tr.view.k : 1 };
+  return { json: JSON.stringify(d.trees.map(t => ({ id: t.id, root: t.root }))), dup, bad, total, visible, nodes, trees: d.trees.length, all: d.all };
 });
 
 function check(s) {
@@ -55,6 +61,7 @@ async function run(seed) {
   const errors = [], log = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('dialog', d => d.accept());                          // "Delete the tree …?" confirmation
   await page.goto(url); await page.waitForTimeout(400);
   await page.click('#fit'); await page.waitForTimeout(200);
 
@@ -94,7 +101,8 @@ async function run(seed) {
       return 'child of "' + n.t + '"';
     },
     async addSibling() {
-      const ns = await visibleNodes(), n = pick(ns.slice(1)); if (!(await select(n))) return null;
+      const ns = await visibleNodes(); if (ns.length < 2) return null;
+      const n = pick(ns.slice(1)); if (!(await select(n))) return null;
       await page.keyboard.press('Enter'); await settle(100); await page.keyboard.type('fs' + Math.floor(rand() * 1000)); await page.keyboard.press('Enter');
       return 'sibling of "' + n.t + '"';
     },
@@ -133,12 +141,26 @@ async function run(seed) {
       await pick(els).evaluate(e => e.click());        // the selected node's toolbar can cover the button
       return 'collapse/expand a branch';
     },
+    async newTree() {
+      await page.click('#newTree'); await settle(150);
+      await page.keyboard.type('tr' + Math.floor(rand() * 1000)); await page.keyboard.press('Enter');
+      return 'new tree';
+    },
+    async deleteTree() {
+      if ((await page.evaluate(() => window.__trees.data.trees.length)) < 2) return null;
+      await page.click('#delTree'); return 'delete the current tree';
+    },
+    async toggleAll() { await page.click('#allTrees'); return 'toggle "All trees"'; },
+    async switchTree() {
+      const values = await page.$$eval('#treeSel option', o => o.map(x => x.value)); if (values.length < 2) return null;
+      await page.selectOption('#treeSel', pick(values)); return 'switch tree from the list';
+    },
     async reorder() { await page.click('#reorder'); return 'tidy up'; },
     async zoom() { await page.mouse.move(700, 450); await page.mouse.wheel(0, rand() < 0.5 ? -200 : 200); return 'zoom'; },
     async fit() { await page.click('#fit'); return 'fit'; },
   };
-  const mutating = new Set(['dragFree', 'dragOnto', 'addChild', 'addSibling', 'toggleDone', 'remove', 'fold', 'card']);
-  const names = Object.keys(actions), weights = { dragFree: 4, dragOnto: 3, addChild: 3, addSibling: 2, toggleDone: 1, remove: 1, fold: 1, card: 4, reorder: 1, zoom: 1, fit: 1 };
+  const mutating = new Set(['dragFree', 'dragOnto', 'addChild', 'addSibling', 'toggleDone', 'remove', 'fold', 'card', 'newTree', 'deleteTree']);
+  const names = Object.keys(actions), weights = { dragFree: 4, dragOnto: 3, addChild: 3, addSibling: 2, toggleDone: 1, remove: 1, fold: 1, card: 4, newTree: 2, deleteTree: 1, toggleAll: 1, switchTree: 1, reorder: 1, zoom: 1, fit: 1 };
   const bag = names.flatMap(n => Array(weights[n]).fill(n));
 
   let fail = null;

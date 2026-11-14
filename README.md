@@ -72,6 +72,16 @@ Good to know:
 - Disconnecting stops the backups and revokes the token; the backup stays on your Drive.
 - Everything else in the app keeps working offline; the Drive code only talks to Google after you connect it.
 
+## Several trees on the same page
+
+Every tree you create is shown **side by side on the same canvas**, so you can keep a whole workspace in view:
+
+- **+ New** adds a tree next to the others and brings it into view; the list at the top jumps to a tree.
+- Drag a tree's **root** to move the whole tree anywhere; trees push each other away like the nodes do.
+- Drag any node **onto a node of another tree** to move it there (undo with `Ctrl+Z`).
+- The "current" tree is the one you last worked in: **Delete** removes it, **Markdown** exports it.
+- Untick **All trees** to see one tree at a time (the list then switches between them). The choice is remembered.
+
 ## Features
 
 - **Smooth**: wheel zoom glides, *Fit* and search animate the view, and large trees stay fluid.

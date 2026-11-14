@@ -14,7 +14,15 @@ sharing or syncing.
 - Touch compatible (pointer events, pinch-zoom) and light/dark theme.
 
 ## Data model
-`data = { v, trees:[{ id, root, view:{x,y,k} }], current, theme, numbers }`
+`data = { v, trees:[{ id, root }], current, theme, numbers, all, view:{x,y,k} }`
+- All trees live on **one shared canvas** with a single pan/zoom `view`. `all` = show every tree side by side
+  (`true`, default) or only the `current` one; `current` follows the node you last selected. Per-tree views of older
+  versions are dropped by `normalize()`.
+- `index()` indexes every tree (`byId`, `parentOf`, `treeIdOf`, `rootIds`; `isRoot(id)`); `render()` lays out
+  `shownTrees()` only. `layout()` places the trees left to right (`GAP_TREE`, a tree's width is the width of its root's
+  subtree); a root's own `dx/dy` moves its whole tree. Roots are the heaviest `rank` in `relax()`, so the bubbles also
+  keep trees apart. Nodes can be dragged between trees because `reparent()` works on the global maps.
+- After using a checkbox or the tree list in the top bar the element is blurred, so shortcuts keep working.
 
 Node: `{ id, text, done, collapsed, children[], color?, dx?, dy?, prio? (1-3), due? ('YYYY-MM-DD'), start? ('YYYY-MM-DD'),
 rep? ('d'|'w'|'m'), items? [{t, d}] (checklist, max 100), tags? [string] (max 12), note? }`

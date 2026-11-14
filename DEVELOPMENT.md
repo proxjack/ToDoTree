@@ -67,6 +67,19 @@ Repeat: a leaf node with `rep` marked "done" does not stay done; it moves its du
 `applyDone`) and resets its checklist. Search looks at title, tags and checklist items (`matches`). Markdown:
 `@due ^start !priority #tag`, note in `> …` lines, checklist as nested items (`toMd`/`parseMd`).
 
+## Look and feel
+All colors, shadows and the focus ring are CSS custom properties (design tokens) at the top of the `<style>` block
+(`:root` for light, `[data-theme=dark]` for dark); node colors come from `PALETTE` / `ROOT_COLOR` in the script and are
+mixed with the surface color through `color-mix()`, so both themes follow the same rules. Toolbar icons are an inline SVG
+sprite (`<symbol id="i-…">`, used with `<use href="#i-…">`), so there are no external files. The top bar keeps the
+labels of its main buttons and shows only icons of the others below 1700 px (`.lbl`, `.keep`). Glass panels use
+`backdrop-filter`; entrance animations use the individual `translate`/`scale` properties so they never fight with the
+inline `transform` that positions the nodes, and all animations are switched off by `prefers-reduced-motion`.
+The stage background must stay a single layer (the script sets its `background-size/position` while panning); the soft
+colored glows live on `<body>`. Keep every `id` and class used by the script and the tests when restyling.
+Watch out for invisible characters when editing the stylesheet with scripts: a BOM before the first rule silently
+disables the whole `:root` block (all variables).
+
 ## Performance notes
 `updateNode()` only touches the DOM for what changed and caches the measured size (`el._sz`, invalidated through the
 content signature `el._sig`); `layout()` re-measures only invalidated nodes, which avoids a forced reflow per node

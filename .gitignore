@@ -1,1 +1,7 @@
 node_modules/
+
+# graphify: keep the generated graph, ignore local / machine-specific files
+graphify-out/cache/
+graphify-out/cost.json
+graphify-out/.graphify_python
+graphify-out/.graphify_root

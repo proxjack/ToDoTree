@@ -231,7 +231,7 @@ input[type=search]{width:170px;padding-left:31px;background-repeat:no-repeat;bac
 @media (max-width:700px){#card{top:auto!important;left:8px;right:8px;bottom:8px;width:auto;height:64vh;animation-name:slideUp}}
 
 /* ---------- Google Drive backup dialog ---------- */
-#drv{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(8,12,24,.46);
+#drv,#fld{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(8,12,24,.46);
   backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);padding:16px}
 .mbox{width:min(470px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--surface);color:var(--ink);
   border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);padding:18px 20px 20px;user-select:text;-webkit-user-select:text;
@@ -248,11 +248,11 @@ input[type=search]{width:170px;padding-left:31px;background-repeat:no-repeat;bac
 .dstatus{font-size:12.5px;margin-top:10px;min-height:18px;color:var(--muted)}
 .dstatus.err{color:var(--danger)}
 .dstatus.ok{color:var(--ok)}
-#drive::after{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:2px;background:transparent}
-#drive.ok::after{background:var(--ok)}
-#drive.auth::after{background:var(--warn)}
-#drive.err::after{background:var(--danger)}
-#drive.busy::after{background:var(--accent);animation:pulse 1s ease-in-out infinite}
+#drive::after,#folder::after{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:2px;background:transparent}
+#drive.ok::after,#folder.ok::after{background:var(--ok)}
+#drive.auth::after,#folder.auth::after{background:var(--warn)}
+#drive.err::after,#folder.err::after{background:var(--danger)}
+#drive.busy::after,#folder.busy::after{background:var(--accent);animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25}}
 
 /* ---------- Toast, hint, animations ---------- */
@@ -428,7 +428,8 @@ input[type=search]{width:170px;padding-left:31px;background-repeat:no-repeat;bac
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3m0 0L8 7m4-4 4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
-  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-cloud"viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
 </defs></svg>
@@ -457,6 +458,7 @@ input[type=search]{width:170px;padding-left:31px;background-repeat:no-repeat;bac
     <button class="btn" id="expJson" title="Download a backup of all trees"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span class="lbl">JSON backup</span></button>
     <button class="btn" id="expMd" title="Export the current tree as a Markdown list"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span class="lbl">Markdown</span></button>
     <button class="btn" id="imp" title="Import a JSON backup or a Markdown list"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span class="lbl">Import</span></button>
+    <button class="btn" id="folder" title="Automatic backup to a folder on this computer"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span class="lbl">Folder</span></button>
     <button class="btn" id="drive" title="Back up to Google Drive"><svg class="ic" aria-hidden="true"><use href="#i-cloud"/></svg><span class="lbl">Drive</span></button>
     <select id="styleSel" aria-label="Visual style" title="Visual style"><option value="glass">Glass</option><option value="minimal">Minimal</option><option value="bold">Bold</option><option value="blueprint">Blueprint</option><option value="brutal">Brutalist</option></select>
     <button class="btn" id="theme" title="Light / dark theme" aria-label="Change theme"><svg class="ic i-moon" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic i-sun" aria-hidden="true"><use href="#i-sun"/></svg></button>
@@ -546,6 +548,22 @@ input[type=search]{width:170px;padding-left:31px;background-repeat:no-repeat;bac
       <button class="btn" id="d-restore">Restore from Drive…</button>
     </div>
     <div id="d-status" class="dstatus" aria-live="polite"></div>
+  </div>
+</div>
+
+<div id="fld" hidden>
+  <div class="mbox" role="dialog" aria-label="Folder backup">
+    <header><h3>Folder backup</h3><button class="btn" id="f-close" title="Close (Esc)" aria-label="Close">✕</button></header>
+    <p class="dnote" id="f-info"></p>
+    <div class="drow">
+      <button class="btn pri" id="f-choose">Choose folder…</button>
+      <button class="btn" id="f-stop">Stop</button>
+    </div>
+    <label class="chkl dauto"><input type="checkbox" id="f-auto"> Save a copy automatically after every change</label>
+    <div class="drow">
+      <button class="btn" id="f-now">Save now</button>
+    </div>
+    <div id="f-status" class="dstatus" aria-live="polite"></div>
   </div>
 </div>
 
@@ -691,7 +709,7 @@ function setSaved(text, err) { const s = $('#saved'); s.textContent = text; s.cl
 function scheduleSave() { setSaved('Saving…'); clearTimeout(saveT); saveT = setTimeout(save, 350); }
 function save() {
   clearTimeout(saveT); saveT = 0;
-  try { localStorage.setItem(KEY, JSON.stringify(data)); storageOK = true; setSaved('Saved locally'); driveScheduleBackup(); }
+  try { localStorage.setItem(KEY, JSON.stringify(data)); storageOK = true; setSaved('Saved locally'); driveScheduleBackup(); folderScheduleBackup(); }
   catch (e) { storageOK = false; setSaved('⚠ Not saved: use JSON backup', true); }
 }
 
@@ -1629,6 +1647,7 @@ world.addEventListener('click', e => {
    ===================================================================== */
 document.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey, t = e.target;
+  if (!fld.hidden) { if (e.key === 'Escape') closeFolder(); return; }
   if (!drv.hidden) { if (e.key === 'Escape') closeDrive(); return; }   // the Drive dialog is open: keys do not reach the tree
   if (cardId && card.contains(t)) return;     // inside the card the keys belong to its fields (Esc closes it, see bindCard)
   const typing = t.matches && t.matches('input,textarea,select,[contenteditable="true"]');
@@ -2005,6 +2024,143 @@ function bindDrive() {
 }
 
 /* =====================================================================
+   FOLDER BACKUP (optional)
+   Writes todotree-backup.json (always the latest) and todotree-YYYY-MM-DD.json (one per day) into a folder the user
+   picks, through the File System Access API (Chromium browsers). The folder handle is kept in IndexedDB; after a
+   restart the browser may ask once to allow access again, which can only happen right after a click.
+   ===================================================================== */
+const FOLDER_KEY = 'trees:folder', FOLDER_FILE = 'todotree-backup.json';
+const FOLDER_DELAY = typeof window.__FOLDER_DELAY_MS === 'number' ? window.__FOLDER_DELAY_MS : 3000;
+const fld = $('#fld');
+const folderSupported = () => typeof window.showDirectoryPicker === 'function';
+const folder = { cfg: { auto: true, name: '', last: '', hash: '' }, handle: null, busy: false, again: false, timer: 0, state: '', msg: '', lastAsk: 0 };
+try { Object.assign(folder.cfg, JSON.parse(localStorage.getItem(FOLDER_KEY) || '{}')); } catch (e) { /* ignore */ }
+function saveFolderCfg() { try { localStorage.setItem(FOLDER_KEY, JSON.stringify(folder.cfg)); } catch (e) { /* ignore */ } }
+
+const fsDb = () => new Promise((res, rej) => {
+  const r = indexedDB.open('trees-fs', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+});
+async function fsGet(k) {
+  const db = await fsDb();
+  return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+}
+async function fsSet(k, v) {
+  const db = await fsDb();
+  return new Promise((res, rej) => {
+    const t = db.transaction('kv', 'readwrite');
+    if (v === undefined) t.objectStore('kv').delete(k); else t.objectStore('kv').put(v, k);
+    t.oncomplete = () => res(); t.onerror = () => rej(t.error);
+  });
+}
+
+function setFolder(msg, kind) { folder.msg = msg || ''; folder.state = kind || ''; renderFolder(); }
+function renderFolder() {
+  const c = folder.cfg, b = $('#folder'), has = !!folder.handle;
+  const st = !has ? '' : folder.busy ? 'busy' : folder.state === 'err' ? 'err' : folder.state === 'auth' ? 'auth' : c.last ? 'ok' : '';
+  b.className = 'btn' + (st ? ' ' + st : '');
+  b.title = st === 'ok' ? 'Copy saved to "' + c.name + '" at ' + fmtWhen(c.last) : st === 'auth' ? 'Folder backup: click to allow access again'
+    : st === 'err' ? 'Folder backup failed: ' + folder.msg : st === 'busy' ? 'Saving the copy…' : 'Automatic backup to a folder on this computer';
+  if (fld.hidden) return;
+  $('#f-info').textContent = folderSupported()
+    ? 'Pick a folder (for example one synced by OneDrive or Dropbox) and the app keeps a JSON copy of all your trees there: todotree-backup.json (always the latest) plus one file per day.'
+    : 'This browser cannot write to a folder. Open the app in Chrome or Edge to use this.';
+  const idle = folderSupported() && !folder.busy;
+  $('#f-choose').textContent = has ? 'Change folder…' : 'Choose folder…';
+  $('#f-choose').disabled = !idle;
+  $('#f-stop').disabled = !has;
+  $('#f-auto').checked = c.auto; $('#f-auto').disabled = !has;
+  $('#f-now').disabled = !(idle && has);
+  const s = $('#f-status');
+  s.className = 'dstatus' + (folder.state === 'err' || folder.state === 'auth' ? ' err' : folder.state === 'ok' ? ' ok' : '');
+  s.textContent = folder.msg || (has ? 'Folder: ' + c.name + (c.last ? '. Last copy: ' + fmtWhen(c.last) : '. No copy yet.') : 'No folder chosen.');
+}
+
+async function folderWrite(name, text) {
+  const fh = await folder.handle.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  try { await w.write(text); await w.close(); } catch (e) { try { await w.abort(); } catch (e2) { /* ignore */ } throw e; }
+}
+
+// mode: 'auto' (never asks for permission), 'gesture' (right after a click) or 'manual' (the user asked for it)
+async function folderBackup(mode) {
+  const c = folder.cfg; if (!folder.handle) return;
+  if (folder.busy) { folder.again = true; return; }
+  const h = backupHash();
+  if (mode !== 'manual' && h === c.hash) return;
+  folder.busy = true; setFolder('Saving…', '');
+  let retry = false;
+  try {
+    let p = await folder.handle.queryPermission({ mode: 'readwrite' });
+    if (p !== 'granted') {
+      if (mode === 'auto') throw Object.assign(new Error('Click anywhere to allow access to the folder again'), { auth: true });
+      p = await folder.handle.requestPermission({ mode: 'readwrite' });
+      if (p !== 'granted') throw Object.assign(new Error('Access to the folder was not granted'), { auth: true });
+    }
+    const text = backupText();
+    await folderWrite(FOLDER_FILE, text);
+    await folderWrite('todotree-' + todayISO() + '.json', text);
+    c.last = new Date().toISOString(); c.hash = h; saveFolderCfg();
+    setFolder('Saved ' + fmtWhen(c.last), 'ok');
+    if (mode === 'manual') toast('Copy saved to ' + c.name);
+  } catch (e) {
+    if (e.auth) setFolder(e.message, 'auth');
+    else { setFolder('Could not write to the folder: ' + (e.name === 'NotFoundError' ? 'it no longer exists' : e.message), 'err'); retry = true; }
+  } finally {
+    folder.busy = false; renderFolder();
+    if (folder.again) { folder.again = false; folderScheduleBackup(); }
+    else if (retry && c.auto) { clearTimeout(folder.timer); folder.timer = setTimeout(() => folderBackup('auto'), 60000); }
+  }
+}
+// Called after every local save: writes the copy a few seconds after the last change
+function folderScheduleBackup() {
+  if (!folder.handle || !folder.cfg.auto) return;
+  clearTimeout(folder.timer); folder.timer = setTimeout(() => folderBackup('auto'), FOLDER_DELAY);
+}
+
+async function folderChoose() {
+  try {
+    const h = await window.showDirectoryPicker({ id: 'todotree-backup', mode: 'readwrite' });
+    try { await fsSet('dir', h); } catch (e) { /* the folder still works for this session, it just will not be remembered */ }
+    folder.handle = h; Object.assign(folder.cfg, { name: h.name, last: '', hash: '' }); saveFolderCfg();
+    setFolder('', ''); folderBackup('manual');
+  } catch (e) { if (e.name !== 'AbortError') setFolder('Could not use that folder: ' + e.message, 'err'); }
+}
+async function folderStop() {
+  clearTimeout(folder.timer); folder.handle = null;
+  Object.assign(folder.cfg, { name: '', last: '', hash: '' }); saveFolderCfg();
+  try { await fsSet('dir', undefined); } catch (e) { /* ignore */ }
+  setFolder('Folder backup stopped. The files already in the folder stay there.', '');
+}
+
+function openFolder() { finishEdit(true); fld.hidden = false; renderFolder(); $('#f-choose').focus(); }
+function closeFolder() { fld.hidden = true; renderFolder(); }
+
+function bindFolder() {
+  $('#folder').onclick = openFolder;
+  $('#f-close').onclick = closeFolder;
+  fld.addEventListener('pointerdown', e => { if (e.target === fld) closeFolder(); });
+  fld.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closeFolder(); } });
+  $('#f-choose').onclick = folderChoose;
+  $('#f-stop').onclick = folderStop;
+  $('#f-now').onclick = () => folderBackup('manual');
+  $('#f-auto').onchange = e => { folder.cfg.auto = e.target.checked; saveFolderCfg(); if (folder.cfg.auto) folderScheduleBackup(); renderFolder(); };
+  // After a restart the browser may need a click to allow the folder again: ask right after the user's next click
+  document.addEventListener('pointerdown', () => {
+    if (!folder.handle || !folder.cfg.auto || folder.busy || folder.state !== 'auth' || !fld.hidden || !drv.hidden) return;
+    if (Date.now() - folder.lastAsk < 60000) return;
+    folder.lastAsk = Date.now(); folderBackup('gesture');
+  }, true);
+  renderFolder();
+  if (folderSupported() && window.indexedDB) fsGet('dir').then(h => {
+    if (!h) return;
+    folder.handle = h; if (!folder.cfg.name) folder.cfg.name = h.name;
+    renderFolder(); folderScheduleBackup();
+  }).catch(() => { /* ignore */ });
+}
+
+/* =====================================================================
    UI: toast, bar, theme
    ===================================================================== */
 function toast(msg, label, fn) {
@@ -2015,7 +2171,7 @@ function toast(msg, label, fn) {
 }
 
 function bindUI() {
-  buildSwatches(); bindCard(); bindDrive();
+  buildSwatches(); bindCard(); bindDrive(); bindFolder();
   $('#treeSel').onchange = e => showTree(e.target.value);
   $('#allTrees').onchange = e => {
     finishEdit(false); data.all = e.target.checked; scheduleSave();

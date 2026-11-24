@@ -38,7 +38,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     await page.fill('#f-path', dir); await page.click('#f-choose');
     await page.waitForFunction(() => /ok/.test(document.querySelector('#folder').className));
     let names = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
-    log(names.includes('todotree-backup.json') && names.some(n => /^todotree-\d{4}-\d{2}-\d{2}\.json$/.test(n)), 'the server created the folder and wrote the latest and the dated file');
+    log(names.length === 1 && names[0] === 'todotree-backup.json', 'the server created the folder and wrote a single file: the latest backup');
     log(JSON.parse(fs.readFileSync(nodePath.join(dir, 'todotree-backup.json'), 'utf8')).app === 'trees', 'the file contains the trees');
     await page.click('#f-close');
 

@@ -2028,7 +2028,7 @@ function bindDrive() {
 
 /* =====================================================================
    FOLDER BACKUP (optional)
-   Writes todotree-backup.json (always the latest) and todotree-YYYY-MM-DD.json (one per day) into a folder the user
+   Writes todotree-backup.json (always the latest) into a folder the user
    picks, through the File System Access API (Chromium browsers). The folder handle is kept in IndexedDB; after a
    restart the browser may ask once to allow access again, which can only happen right after a click.
    ===================================================================== */
@@ -2070,9 +2070,9 @@ function renderFolder() {
     : st === 'err' ? 'Folder backup failed: ' + folder.msg : st === 'busy' ? 'Saving the copy…' : 'Automatic backup to a folder on this computer';
   if (fld.hidden) return;
   $('#f-info').textContent = viaServer
-    ? 'Type the full path of a folder on this computer (for example one synced by OneDrive or Dropbox). The local server writes a JSON copy of all your trees there: todotree-backup.json (always the latest) plus one file per day.'
+    ? 'Type the full path of a folder on this computer (for example one synced by OneDrive or Dropbox). The local server writes a JSON copy of all your trees there: todotree-backup.json, always the latest version.'
     : folderSupported()
-      ? 'Pick a folder (for example one synced by OneDrive or Dropbox) and the app keeps a JSON copy of all your trees there: todotree-backup.json (always the latest) plus one file per day.'
+      ? 'Pick a folder (for example one synced by OneDrive or Dropbox) and the app keeps a JSON copy of all your trees there: todotree-backup.json, always the latest version.'
       : 'This browser cannot write to a folder by itself. Start the local server (npm start), open http://localhost:5173 and come back here, or use Chrome or Edge.';
   const idle = folderCanChoose() && !folder.busy;
   const pr = $('#f-pathrow'); pr.hidden = !viaServer;
@@ -2112,7 +2112,6 @@ async function folderBackup(mode) {
         if (p !== 'granted') throw Object.assign(new Error('Access to the folder was not granted'), { auth: true });
       }
       await folderWrite(FOLDER_FILE, text);
-      await folderWrite('todotree-' + todayISO() + '.json', text);
     } else {
       const r = await fetch('/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text });
       if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).error) || 'the server answered ' + r.status);

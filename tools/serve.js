@@ -14,7 +14,6 @@ const MAX_BODY = 20 * 1024 * 1024;
 let backupDir = process.env.BACKUP_DIR || '';
 if (!backupDir) { try { backupDir = JSON.parse(fs.readFileSync(CFG, 'utf8')).dir || ''; } catch (e) { /* not set yet */ } }
 
-const today = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 
 // Only the page served by this very server may use the backup endpoints (blocks other sites and DNS rebinding)
@@ -57,7 +56,6 @@ http.createServer((req, res) => {
         if (!j || j.app !== 'trees' || !Array.isArray(j.trees)) return send(res, 400, { error: 'Not a trees backup' });
         fs.mkdirSync(backupDir, { recursive: true });
         writeAtomic(backupDir, 'todotree-backup.json', text);
-        writeAtomic(backupDir, 'todotree-' + today() + '.json', text);
         send(res, 200, { ok: true });
       } catch (e) { send(res, 500, { error: e.code === 'EACCES' || e.code === 'EPERM' ? 'No permission to write in that folder' : e.message }); }
     });

@@ -47,7 +47,7 @@ Numbering (1, 1.1, 1.2…) is computed from the order of siblings, left to right
 ## Folder backup
 
 The **Folder** button keeps an automatic copy of all your trees in a folder you choose (for example one synced by
-OneDrive or Dropbox). It writes `todotree-backup.json` (always the latest) and one `todotree-YYYY-MM-DD.json` per day,
+OneDrive or Dropbox). It keeps a single file, `todotree-backup.json`, always the latest version,
 a few seconds after every change. In Chrome and Edge the browser writes the files itself; after a restart the button
 turns amber and the next click anywhere allows the folder again.
 

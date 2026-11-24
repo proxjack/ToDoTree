@@ -35,10 +35,10 @@ const log = (ok, msg) => { if (!ok) failed++; console.log((ok ? 'PASS ' : 'FAIL 
   await page.click('#folder');
   log(await page.isDisabled('#f-now') && await page.isDisabled('#f-stop'), 'before choosing a folder: nothing to save or stop');
   await page.click('#f-choose');
-  await page.waitForFunction(() => Object.keys(window.__files).length >= 2);
+  await page.waitForFunction(() => Object.keys(window.__files).length >= 1);
   let f = await files();
   const names = Object.keys(f);
-  log(names.includes('todotree-backup.json') && names.some(n => /^todotree-\d{4}-\d{2}-\d{2}\.json$/.test(n)), 'choosing a folder writes the latest file and a dated one');
+  log(names.length === 1 && names[0] === 'todotree-backup.json', 'choosing a folder writes a single file: the latest backup');
   const j = JSON.parse(f['todotree-backup.json']);
   log(j.app === 'trees' && Array.isArray(j.trees) && j.trees.length >= 1, 'the file contains the trees');
   log(/ok/.test(await cls() || ''), 'the Folder button shows the green state');

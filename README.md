@@ -48,8 +48,12 @@ Numbering (1, 1.1, 1.2…) is computed from the order of siblings, left to right
 
 The **Folder** button keeps an automatic copy of all your trees in a folder you choose (for example one synced by
 OneDrive or Dropbox). It writes `todotree-backup.json` (always the latest) and one `todotree-YYYY-MM-DD.json` per day,
-a few seconds after every change. It needs a Chromium browser (Chrome, Edge). After a browser restart the button turns
-amber and the next click anywhere allows the folder again.
+a few seconds after every change. In Chrome and Edge the browser writes the files itself; after a restart the button
+turns amber and the next click anywhere allows the folder again.
+
+In **Firefox** (and any browser without folder access) run `npm start`, open <http://localhost:5173> and type the full
+path of the folder in the dialog: the local server writes the files, no extension or browser permission needed. The
+chosen folder is remembered in `.backup-dir.json` (not committed). You can also set the `BACKUP_DIR` environment variable.
 
 ## Google Drive backup
 
@@ -112,6 +116,7 @@ npm test
 
 - `tests/run.js`: a guided scenario (rename, drag, reattach, undo, search, zoom, saving, import…).
 - `tests/folder.js`: the folder backup against a fake folder: choose, automatic copies, lost permission, stop.
+- `tests/folder-server.js`: the same backup through the local server (the Firefox path), against the real `tools/serve.js`.
 - `tests/drive.js`: the Google Drive backup against a fake Google sign-in and a fake Drive (no credentials needed):
   connect, automatic backups, expired sign-in, restore, offline, disconnect.
 - `tests/fuzz.js`: random actions with invariant checks (no overlaps, no nodes above the ceiling, valid model,

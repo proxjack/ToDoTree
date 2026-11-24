@@ -7,9 +7,10 @@
   "description": "Interactive cloud-node trees for process flows and to-dos (single HTML file, offline).",
   "scripts": {
     "start": "node tools/serve.js",
-    "test": "node tests/run.js && node tests/drive.js && node tests/folder.js && node tests/fuzz.js",
+    "test": "node tests/run.js && node tests/drive.js && node tests/folder.js && node tests/folder-server.js && node tests/fuzz.js",
     "test:drive": "node tests/drive.js",
     "test:folder": "node tests/folder.js",
+    "test:folder-server": "node tests/folder-server.js",
     "test:fuzz": "node tests/fuzz.js",
     "bench": "node tests/bench.js"
   },

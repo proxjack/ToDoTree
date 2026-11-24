@@ -555,6 +555,9 @@ input[type=search]{width:170px;padding-left:31px;background-repeat:no-repeat;bac
   <div class="mbox" role="dialog" aria-label="Folder backup">
     <header><h3>Folder backup</h3><button class="btn" id="f-close" title="Close (Esc)" aria-label="Close">✕</button></header>
     <p class="dnote" id="f-info"></p>
+    <label class="dlab" id="f-pathrow" hidden>Folder path
+      <input type="text" id="f-path" placeholder="C:\Users\you\OneDrive\ToDoTree" autocomplete="off" spellcheck="false">
+    </label>
     <div class="drow">
       <button class="btn pri" id="f-choose">Choose folder…</button>
       <button class="btn" id="f-stop">Stop</button>
@@ -2033,7 +2036,10 @@ const FOLDER_KEY = 'trees:folder', FOLDER_FILE = 'todotree-backup.json';
 const FOLDER_DELAY = typeof window.__FOLDER_DELAY_MS === 'number' ? window.__FOLDER_DELAY_MS : 3000;
 const fld = $('#fld');
 const folderSupported = () => typeof window.showDirectoryPicker === 'function';
-const folder = { cfg: { auto: true, name: '', last: '', hash: '' }, handle: null, busy: false, again: false, timer: 0, state: '', msg: '', lastAsk: 0 };
+const folder = { cfg: { auto: true, name: '', last: '', hash: '' }, handle: null, busy: false, again: false, timer: 0, state: '', msg: '', lastAsk: 0,
+  server: false, dir: '' };   // server: the page is served by `npm start`, which can write the copies for browsers without folder access (Firefox)
+const folderHas = () => !!folder.handle || (folder.server && !!folder.dir);
+const folderCanChoose = () => folderSupported() || folder.server;
 try { Object.assign(folder.cfg, JSON.parse(localStorage.getItem(FOLDER_KEY) || '{}')); } catch (e) { /* ignore */ }
 function saveFolderCfg() { try { localStorage.setItem(FOLDER_KEY, JSON.stringify(folder.cfg)); } catch (e) { /* ignore */ } }
 
@@ -2057,17 +2063,22 @@ async function fsSet(k, v) {
 
 function setFolder(msg, kind) { folder.msg = msg || ''; folder.state = kind || ''; renderFolder(); }
 function renderFolder() {
-  const c = folder.cfg, b = $('#folder'), has = !!folder.handle;
+  const c = folder.cfg, b = $('#folder'), has = folderHas(), viaServer = !folderSupported() && folder.server;
   const st = !has ? '' : folder.busy ? 'busy' : folder.state === 'err' ? 'err' : folder.state === 'auth' ? 'auth' : c.last ? 'ok' : '';
   b.className = 'btn' + (st ? ' ' + st : '');
   b.title = st === 'ok' ? 'Copy saved to "' + c.name + '" at ' + fmtWhen(c.last) : st === 'auth' ? 'Folder backup: click to allow access again'
     : st === 'err' ? 'Folder backup failed: ' + folder.msg : st === 'busy' ? 'Saving the copy…' : 'Automatic backup to a folder on this computer';
   if (fld.hidden) return;
-  $('#f-info').textContent = folderSupported()
-    ? 'Pick a folder (for example one synced by OneDrive or Dropbox) and the app keeps a JSON copy of all your trees there: todotree-backup.json (always the latest) plus one file per day.'
-    : 'This browser cannot write to a folder. Open the app in Chrome or Edge to use this.';
-  const idle = folderSupported() && !folder.busy;
-  $('#f-choose').textContent = has ? 'Change folder…' : 'Choose folder…';
+  $('#f-info').textContent = viaServer
+    ? 'Type the full path of a folder on this computer (for example one synced by OneDrive or Dropbox). The local server writes a JSON copy of all your trees there: todotree-backup.json (always the latest) plus one file per day.'
+    : folderSupported()
+      ? 'Pick a folder (for example one synced by OneDrive or Dropbox) and the app keeps a JSON copy of all your trees there: todotree-backup.json (always the latest) plus one file per day.'
+      : 'This browser cannot write to a folder by itself. Start the local server (npm start), open http://localhost:5173 and come back here, or use Chrome or Edge.';
+  const idle = folderCanChoose() && !folder.busy;
+  const pr = $('#f-pathrow'); pr.hidden = !viaServer;
+  const pi = $('#f-path'); if (document.activeElement !== pi) pi.value = folder.dir;
+  pi.disabled = !idle;
+  $('#f-choose').textContent = viaServer ? 'Use this folder' : has ? 'Change folder…' : 'Choose folder…';
   $('#f-choose').disabled = !idle;
   $('#f-stop').disabled = !has;
   $('#f-auto').checked = c.auto; $('#f-auto').disabled = !has;
@@ -2085,22 +2096,27 @@ async function folderWrite(name, text) {
 
 // mode: 'auto' (never asks for permission), 'gesture' (right after a click) or 'manual' (the user asked for it)
 async function folderBackup(mode) {
-  const c = folder.cfg; if (!folder.handle) return;
+  const c = folder.cfg; if (!folderHas()) return;
   if (folder.busy) { folder.again = true; return; }
   const h = backupHash();
   if (mode !== 'manual' && h === c.hash) return;
   folder.busy = true; setFolder('Saving…', '');
   let retry = false;
   try {
-    let p = await folder.handle.queryPermission({ mode: 'readwrite' });
-    if (p !== 'granted') {
-      if (mode === 'auto') throw Object.assign(new Error('Click anywhere to allow access to the folder again'), { auth: true });
-      p = await folder.handle.requestPermission({ mode: 'readwrite' });
-      if (p !== 'granted') throw Object.assign(new Error('Access to the folder was not granted'), { auth: true });
-    }
     const text = backupText();
-    await folderWrite(FOLDER_FILE, text);
-    await folderWrite('todotree-' + todayISO() + '.json', text);
+    if (folder.handle) {
+      let p = await folder.handle.queryPermission({ mode: 'readwrite' });
+      if (p !== 'granted') {
+        if (mode === 'auto') throw Object.assign(new Error('Click anywhere to allow access to the folder again'), { auth: true });
+        p = await folder.handle.requestPermission({ mode: 'readwrite' });
+        if (p !== 'granted') throw Object.assign(new Error('Access to the folder was not granted'), { auth: true });
+      }
+      await folderWrite(FOLDER_FILE, text);
+      await folderWrite('todotree-' + todayISO() + '.json', text);
+    } else {
+      const r = await fetch('/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).error) || 'the server answered ' + r.status);
+    }
     c.last = new Date().toISOString(); c.hash = h; saveFolderCfg();
     setFolder('Saved ' + fmtWhen(c.last), 'ok');
     if (mode === 'manual') toast('Copy saved to ' + c.name);
@@ -2115,11 +2131,25 @@ async function folderBackup(mode) {
 }
 // Called after every local save: writes the copy a few seconds after the last change
 function folderScheduleBackup() {
-  if (!folder.handle || !folder.cfg.auto) return;
+  if (!folderHas() || !folder.cfg.auto) return;
   clearTimeout(folder.timer); folder.timer = setTimeout(() => folderBackup('auto'), FOLDER_DELAY);
 }
 
+async function folderServerPost(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'the server answered ' + r.status);
+  return j;
+}
 async function folderChoose() {
+  if (!folderSupported() && folder.server) {                    // Firefox & co: the local server writes the files
+    try {
+      const j = await folderServerPost('/backup/dir', { dir: $('#f-path').value });
+      folder.dir = j.dir; Object.assign(folder.cfg, { name: j.dir, last: '', hash: '' }); saveFolderCfg();
+      setFolder('', ''); folderBackup('manual');
+    } catch (e) { setFolder('Could not use that folder: ' + e.message, 'err'); }
+    return;
+  }
   try {
     const h = await window.showDirectoryPicker({ id: 'todotree-backup', mode: 'readwrite' });
     try { await fsSet('dir', h); } catch (e) { /* the folder still works for this session, it just will not be remembered */ }
@@ -2131,6 +2161,7 @@ async function folderStop() {
   clearTimeout(folder.timer); folder.handle = null;
   Object.assign(folder.cfg, { name: '', last: '', hash: '' }); saveFolderCfg();
   try { await fsSet('dir', undefined); } catch (e) { /* ignore */ }
+  if (folder.dir) { folder.dir = ''; try { await folderServerPost('/backup/dir', { dir: '' }); } catch (e) { /* ignore */ } }
   setFolder('Folder backup stopped. The files already in the folder stay there.', '');
 }
 
@@ -2152,10 +2183,16 @@ function bindFolder() {
     if (Date.now() - folder.lastAsk < 60000) return;
     folder.lastAsk = Date.now(); folderBackup('gesture');
   }, true);
+  $('#f-path').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); folderChoose(); } });
   renderFolder();
   if (folderSupported() && window.indexedDB) fsGet('dir').then(h => {
     if (!h) return;
     folder.handle = h; if (!folder.cfg.name) folder.cfg.name = h.name;
+    renderFolder(); folderScheduleBackup();
+  }).catch(() => { /* ignore */ });
+  else if (!folderSupported() && /^https?:$/.test(location.protocol)) fetch('/backup').then(r => (r.ok ? r.json() : null)).then(j => {
+    if (!j) return;                                              // not served by `npm start`
+    folder.server = true; folder.dir = j.dir || ''; if (folder.dir) folder.cfg.name = folder.dir;
     renderFolder(); folderScheduleBackup();
   }).catch(() => { /* ignore */ });
 }

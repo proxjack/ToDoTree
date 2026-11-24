@@ -8,3 +8,8 @@ graphify-out/.graphify_root
 
 # folder chosen for the local-server backup
 .backup-dir.json
+
+# personal tree backups must never be committed to this public repo
+data/
+todotree-*.json
+trees-backup-*.json
